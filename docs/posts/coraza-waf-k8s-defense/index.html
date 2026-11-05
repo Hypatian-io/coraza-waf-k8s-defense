@@ -1,0 +1,741 @@
+<!DOCTYPE html>
+<html lang="en" class="scroll-smooth dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Building an Autonomous Cloud-Native Defense Stack | Hypatian Systems LLC: Coraza WAF v3, OpenSearch & Kubernetes</title>
+  
+  <!-- Primary Meta Tags -->
+  <meta name="title" content="Building an Autonomous Cloud-Native Defense Stack on Kubernetes">
+  <meta name="description" content="A complete, visual engineering guide to deploying Coraza WAF v3, OpenSearch Security Analytics, Real-Time GeoIP, and Automated Attacker IP Quarantine.">
+  <meta name="author" content="Hypatian Systems LLC">
+  <link rel="canonical" href="https://blog.hypatian.io/posts/coraza-waf-k8s-defense/">
+  <link rel="icon" type="image/png" href="/favicon.png">
+
+  <!-- OpenGraph / Facebook / LinkedIn -->
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://blog.hypatian.io/posts/coraza-waf-k8s-defense/">
+  <meta property="og:title" content="Building an Autonomous Cloud-Native Defense Stack on Kubernetes">
+  <meta property="og:description" content="Pure Go Coraza WAF v3, in-memory log sidecars, OWASP Top 10 mitigation, high-rate burst detectors, and self-healing IP defense on Kubernetes.">
+  <meta property="og:image" content="https://raw.githubusercontent.com/saadrana219/coraza-waf-k8s-defense/main/docs/images/opensearch_dashboard_waf_top.png">
+
+  <!-- Twitter / X -->
+  <meta property="twitter:card" content="summary_large_image">
+  <meta property="twitter:url" content="https://blog.hypatian.io/posts/coraza-waf-k8s-defense/">
+  <meta property="twitter:title" content="Building an Autonomous Cloud-Native Defense Stack on Kubernetes">
+  <meta property="twitter:description" content="Pure Go Coraza WAF v3, in-memory log sidecars, OWASP Top 10 mitigation, high-rate burst detectors, and self-healing IP defense.">
+  <meta property="twitter:image" content="https://raw.githubusercontent.com/saadrana219/coraza-waf-k8s-defense/main/docs/images/opensearch_dashboard_waf_top.png">
+
+  <!-- Tailwind CSS & Inter Font -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  
+  <!-- Mermaid.js -->
+  <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
+  <script>
+    mermaid.initialize({
+      startOnLoad: true,
+      theme: 'dark',
+      themeVariables: {
+        darkMode: true,
+        background: '#090d16',
+        primaryColor: '#0284c7',
+        primaryTextColor: '#f8fafc',
+        primaryBorderColor: '#0369a1',
+        lineColor: '#38bdf8',
+        secondaryColor: '#1e293b',
+        tertiaryColor: '#0f172a'
+      }
+    });
+  </script>
+
+  <style>
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    }
+    code, pre {
+      font-family: 'JetBrains Mono', monospace;
+    }
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-200 antialiased selection:bg-sky-500 selection:text-white min-h-screen">
+
+  <!-- Sticky Top Navigation Banner -->
+  <header class="sticky top-0 z-50 backdrop-blur-md bg-slate-950/85 border-b border-slate-800">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <img src="/images/hypatian_logo_dark.png" onerror="this.onerror=null; this.src='https://raw.githubusercontent.com/saadrana219/coraza-waf-k8s-defense/main/images/hypatian_logo_dark.png';" alt="Hypatian Systems LLC" class="h-8 sm:h-9 w-auto object-contain" />
+        <div class="hidden sm:block border-l border-slate-800 pl-3">
+          <span class="font-bold text-white text-sm sm:text-base">Hypatian Systems LLC</span>
+          <span class="block text-xs text-slate-400">Autonomous Kubernetes Ingress Defense</span>
+        </div>
+      </div>
+      
+      <div class="flex items-center gap-3">
+        <!-- Back to blog button -->
+        <a href="/" class="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-sky-400 hover:text-sky-300 border border-slate-800 transition">
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"></path></svg>
+          <span>All Posts</span>
+        </a>
+        <!-- Share button -->
+        <button onclick="navigator.clipboard.writeText(window.location.href); alert('Shareable publication link copied to clipboard!');" class="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition">
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3"></path></svg>
+          Share
+        </button>
+
+        <!-- GitHub Repo -->
+        <a href="https://github.com/saadrana219/coraza-waf-k8s-defense" target="_blank" rel="noopener noreferrer" class="flex items-center gap-2 text-xs font-semibold px-3.5 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-white shadow-lg shadow-sky-600/20 transition">
+          <svg class="w-4 h-4 fill-current" viewBox="0 0 24 24"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>
+          <span>View on GitHub</span>
+        </a>
+      </div>
+    </div>
+  </header>
+
+  <!-- Hero Header Container -->
+  <div class="relative overflow-hidden border-b border-slate-800 bg-gradient-to-b from-slate-900/60 to-slate-950 py-16 px-4 sm:px-6 lg:px-8">
+    <div class="max-w-4xl mx-auto text-center">
+      <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold bg-sky-950/80 text-sky-400 border border-sky-800/60 mb-6">
+        <span>⚡ Production Engineering Publication</span>
+        <span>•</span>
+        <span>18 Min Read</span>
+      </div>
+      <h1 class="text-3xl sm:text-5xl lg:text-6xl font-extrabold text-white tracking-tight leading-tight">
+        Building an Autonomous Cloud-Native Defense Stack
+      </h1>
+      <p class="mt-6 text-lg sm:text-xl text-slate-300 max-w-2xl mx-auto leading-relaxed">
+        Pure Go Coraza WAF v3, in-memory log sidecars, OWASP Top 10 mitigation, high-rate burst detectors, and self-healing IP defense on Kubernetes.
+      </p>
+
+      <div class="mt-8 flex flex-wrap items-center justify-center gap-3 text-xs font-mono text-slate-400">
+        <div class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-900 border border-slate-800">
+          <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+          <span>Zero SaaS Recurring Fees</span>
+        </div>
+        <div class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-900 border border-slate-800">
+          <span class="w-2 h-2 rounded-full bg-sky-400"></span>
+          <span>Sub-Millisecond Inspection</span>
+        </div>
+        <div class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-900 border border-slate-800">
+          <span class="w-2 h-2 rounded-full bg-amber-400"></span>
+          <span>Automated Ban (&gt;5 hits / 15m)</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Main Content Layout -->
+  <main class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+    <article class="prose prose-invert prose-sky max-w-none">
+      <blockquote class="border-l-4 border-sky-500 bg-sky-950/20 p-4 rounded-r-xl my-6 text-slate-300 text-sm md:text-base italic leading-relaxed"><em class="italic text-slate-300">A complete, visual, step-by-step engineering guide to deploying an enterprise-grade Web Application Firewall, lightweight in-memory log sidecars, OWASP Top 10 protection, high-rate burst detection, and self-healing IP quarantine on Kubernetes.</em></blockquote>
+<p class="text-slate-300 text-base md:text-lg leading-relaxed my-4"><a href="https://github.com/saadrana219/coraza-waf-k8s-defense" target="_blank" rel="noopener noreferrer" class="inline-block mr-2 my-1"><img src="https://img.shields.io/badge/GitHub-coraza--waf--k8s--defense-blue?logo=github" alt="GitHub Repository" class="h-5 rounded inline" /></a></p>
+<p class="text-slate-300 text-base md:text-lg leading-relaxed my-4"><a href="https://kubernetes.io/" target="_blank" rel="noopener noreferrer" class="inline-block mr-2 my-1"><img src="https://img.shields.io/badge/Kubernetes-v1.26+-326CE5?logo=kubernetes&logoColor=white" alt="Kubernetes" class="h-5 rounded inline" /></a></p>
+<p class="text-slate-300 text-base md:text-lg leading-relaxed my-4"><a href="https://coraza.io/" target="_blank" rel="noopener noreferrer" class="inline-block mr-2 my-1"><img src="https://img.shields.io/badge/Coraza_WAF-v3.2.1-00ADD8?logo=go&logoColor=white" alt="Coraza WAF" class="h-5 rounded inline" /></a></p>
+<p class="text-slate-300 text-base md:text-lg leading-relaxed my-4"><a href="https://opensearch.org/" target="_blank" rel="noopener noreferrer" class="inline-block mr-2 my-1"><img src="https://img.shields.io/badge/OpenSearch-v2.19.7-005EB8?logo=opensearch&logoColor=white" alt="OpenSearch" class="h-5 rounded inline" /></a></p>
+<p class="text-slate-300 text-base md:text-lg leading-relaxed my-4"><a href="https://opensource.org/licenses/MIT" target="_blank" rel="noopener noreferrer" class="inline-block mr-2 my-1"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT" class="h-5 rounded inline" /></a></p>
+<hr class="border-slate-800 my-10" />
+<h2 id="1-introduction-the-ingress-defense-dilemma" class="text-2xl md:text-3xl font-bold text-white tracking-tight mt-14 mb-4 pt-8 border-t border-slate-800/80 flex items-center gap-2"><a href="#1-introduction-the-ingress-defense-dilemma" class="text-sky-500 hover:underline">#</a> 1. Introduction: The Ingress Defense Dilemma</h2>
+<p class="text-slate-300 text-base md:text-lg leading-relaxed my-4">At <strong class="text-white font-semibold">Hypatian Systems LLC</strong>, our production Kubernetes cluster serves mission-critical web applications and APIs. Exposing these services to the public Internet invites relentless automated hostility. Within minutes of provisioning a public IP or DNS record, scanning botnets (<code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">nuclei</code>, <code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">masscan</code>, <code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">nikto</code>), automated exploit frameworks, and credential stuffers begin probing web endpoints with directory traversal probes (<code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">/etc/passwd</code>, <code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">.env</code>, <code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">.git</code>), webshell uploads (<code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">eval-stdin.php</code>), and injection attacks (<code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">' OR 1=1--</code>).</p>
+
+<div class="relative my-8 group rounded-xl overflow-hidden border border-slate-800 bg-slate-950 shadow-2xl">
+  <div class="flex items-center justify-between px-4 py-2 bg-slate-900 border-b border-slate-800 text-xs font-mono text-slate-400">
+    <span class="font-semibold text-slate-300">text</span>
+    <button onclick="navigator.clipboard.writeText(this.parentElement.nextElementSibling.innerText); this.innerText='Copied!'; setTimeout(()=>this.innerText='Copy', 2000)" class="hover:text-white transition px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs">Copy</button>
+  </div>
+  <pre class="p-4 text-xs font-mono text-slate-200 overflow-x-auto leading-relaxed"><code>                ┌────────────────────────────────────────────────────────┐
+                │             The Modern Ingress Security Gap            │
+                └────────────────────────────────────────────────────────┘
+          Traditional Solutions                         Our Autonomous Cloud-Native Stack
+    ┌───────────────────────────────┐                  ┌─────────────────────────────────┐
+    │ ❌ Cloud WAFs (SaaS)           │                  │ ✅ 100% Open-Source &amp; On-Prem   │
+    │    • Recurring vendor costs   │                  │    • Pure Go Coraza v3 proxy    │
+    │    • Blind to internal traffic│                  │    • Zero per-request SaaS fees │
+    │    • Opaque black-box rules   │                  │    • Inspects Ingress + Service │
+    ├───────────────────────────────┤                  ├─────────────────────────────────┤
+    │ ❌ ModSecurity / Legacy C     │                  │ ✅ In-Memory Dynamic Hot-Reload │
+    │    • Memory leaks &amp; crashes   │                  │    • Atomic Go pointer swapping │
+    │    • Full restarts to reload  │                  │    • Zero downtime updates      │
+    │    • High container footprint │                  │    • Memory-safe runtime        │
+    ├───────────────────────────────┤                  ├─────────────────────────────────┤
+    │ ❌ Naive Per-Hit Alerting     │                  │ ✅ High-Rate Burst Detectors    │
+    │    • 500 emails on 1 scan     │                  │    • 14 tuned multi-class alerts│
+    │    • On-call fatigue          │                  │    • Enriched URL/payload context│
+    │    • Alerts get muted/ignored │                  │    • Auto-bans IPs &gt;5 hits/15m  │
+    └───────────────────────────────┘                  └─────────────────────────────────┘</code></pre>
+</div>
+<p class="text-slate-300 text-base md:text-lg leading-relaxed my-4">This guide details the complete architecture, source code, visual dashboards, and automated quarantine loop deployed across our Kubernetes cluster. All manifests, automation scripts, and Go source code are maintained in the companion open-source repository:</p>
+<p class="text-slate-300 text-base md:text-lg leading-relaxed my-4">👉 <a href="https://github.com/saadrana219/coraza-waf-k8s-defense" target="_blank" rel="noopener noreferrer" class="text-sky-400 hover:text-sky-300 underline underline-offset-2 transition font-medium"><strong class="text-white font-semibold">https://github.com/saadrana219/coraza-waf-k8s-defense</strong></a></p>
+<hr class="border-slate-800 my-10" />
+<h2 id="2-visual-architecture-component-topology" class="text-2xl md:text-3xl font-bold text-white tracking-tight mt-14 mb-4 pt-8 border-t border-slate-800/80 flex items-center gap-2"><a href="#2-visual-architecture-component-topology" class="text-sky-500 hover:underline">#</a> 2. Visual Architecture & Component Topology</h2>
+<p class="text-slate-300 text-base md:text-lg leading-relaxed my-4">The system comprises seven decoupled, resilient layers operating in harmony:</p>
+<div class="mermaid my-8 p-6 bg-slate-900/90 border border-slate-800 rounded-xl overflow-x-auto text-center shadow-2xl">flowchart TD
+    subgraph External ["🌐 Untrusted External Internet"]
+        Attacker["🚨 Malicious Client / Scanner\n(SQLi, RCE, Webshells)"]
+        Legit["👤 Legitimate User Traffic"]
+    end
+
+    subgraph Layer1 ["1. Ingress & Client IP Preservation"]
+        MetalLB["MetalLB LoadBalancer\n203.0.113.10:443"]
+        Traefik["Traefik Reverse Proxy\nexternalTrafficPolicy: Local\n(Preserves True REMOTE_ADDR)"]
+    end
+
+    subgraph Layer2 ["2. Coraza v3 WAF & Management Console"]
+        CorazaProxy["Coraza WAF Reverse Proxy\n(10.0.10.15:80)\nPure Go v3.2.1 | CRS v4.3.0\nAtomic Pointer Swap Hot-Reload"]
+        CorazaUI["Native WAF Console & SecLang Playground\n(10.0.10.15:8080)"]
+    end
+
+    subgraph Layer3 ["3. Protected Application Services"]
+        WebApp["Web App (Nginx Static Frontend)\n+ API (Flask / Gunicorn)\n+ MariaDB Galera Cluster"]
+    end
+
+    subgraph Layer4 ["4. In-Memory Sidecar Shipper"]
+        WafLog["/var/log/waf/audit.log\n(64Mi in-memory emptyDir)"]
+        RotateScript["rotate-logs.sh\n(Truncates active logs > 5MB)"]
+        FluentBitSidecar["Fluent Bit Sidecar\n(Memory footprint: ~24Mi)"]
+    end
+
+    subgraph Layer5 ["5. OpenSearch 2.19.7 Analytics & Enrichment"]
+        GeoIPPipeline["network-geoip-pipeline\n(MaxMind GeoIP Enrichment)"]
+        DotlessAliases["Dotless Aliases (logs_waf, logs_network)\nRoute to logs-waf-YYYY.MM.DD"]
+        SecurityAnalytics["OpenSearch Security Analytics\nAlienVault OTX IP Reputation (609 IOCs)\n5-Min Correlation Rules"]
+    end
+
+    subgraph Layer6 ["6. Automated Defense & Executive Alerting"]
+        BurstDetectors["14 Query-Level Burst Monitors\n(SQLi, RCE, XSS, Scanner Storms)"]
+        AutoBlockDaemon["Autonomous IP Blocker Daemon\n(Evaluates > 5 attacks / 15m)"]
+        SESEmail["AWS SES Notification Relay\n(secops@example.com)"]
+    end
+
+    Attacker -->|HTTPS Request| MetalLB
+    Legit -->|HTTPS Request| MetalLB
+    MetalLB --> Traefik
+    Traefik -->|Forward with Real IP| CorazaProxy
+    CorazaProxy -->|Blocked 403 Forbidden| Attacker
+    CorazaProxy -->|Clean 200 OK| WebApp
+    CorazaProxy -->|JSON Audit Stream| WafLog
+    WafLog --> RotateScript
+    WafLog --> FluentBitSidecar
+    FluentBitSidecar -->|HTTP Bulk Ingest| GeoIPPipeline
+    GeoIPPipeline --> DotlessAliases
+    DotlessAliases --> SecurityAnalytics
+    DotlessAliases --> BurstDetectors
+    DotlessAliases --> AutoBlockDaemon
+    AutoBlockDaemon -->|Hot-Reload SecRule 100020| CorazaUI
+    AutoBlockDaemon -->|Executive Ban Alert| SESEmail
+    BurstDetectors -->|Rich P1/P2 Alerts| SESEmail</div>
+<hr class="border-slate-800 my-10" />
+<h2 id="3-preserving-real-external-client-ips-at-ingress" class="text-2xl md:text-3xl font-bold text-white tracking-tight mt-14 mb-4 pt-8 border-t border-slate-800/80 flex items-center gap-2"><a href="#3-preserving-real-external-client-ips-at-ingress" class="text-sky-500 hover:underline">#</a> 3. Preserving Real External Client IPs at Ingress</h2>
+<p class="text-slate-300 text-base md:text-lg leading-relaxed my-4">A Web Application Firewall is useless if every incoming request appears to originate from an internal overlay IP (<code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">10.42.x.x</code>). By default, Kubernetes <code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">Service</code> objects of type <code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">LoadBalancer</code> or <code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">NodePort</code> perform Source Network Address Translation (SNAT).</p>
+<p class="text-slate-300 text-base md:text-lg leading-relaxed my-4">To guarantee that the true public IP reaches the WAF engine for GeoIP enrichment and reputation filtering, configure <code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">externalTrafficPolicy: Local</code> on your ingress service:</p>
+
+<div class="relative my-8 group rounded-xl overflow-hidden border border-slate-800 bg-slate-950 shadow-2xl">
+  <div class="flex items-center justify-between px-4 py-2 bg-slate-900 border-b border-slate-800 text-xs font-mono text-slate-400">
+    <span class="font-semibold text-slate-300">yaml</span>
+    <button onclick="navigator.clipboard.writeText(this.parentElement.nextElementSibling.innerText); this.innerText='Copied!'; setTimeout(()=>this.innerText='Copy', 2000)" class="hover:text-white transition px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs">Copy</button>
+  </div>
+  <pre class="p-4 text-xs font-mono text-slate-200 overflow-x-auto leading-relaxed"><code># deploy/traefik-service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: traefik
+  namespace: kube-system
+spec:
+  type: LoadBalancer
+  externalTrafficPolicy: Local  # &lt;--- PRESERVES CLIENT IP (NO KUBE-PROXY SNAT)
+  loadBalancerIP: 203.0.113.10
+  selector:
+    app.kubernetes.io/name: traefik
+  ports:
+    - name: web
+      port: 80
+      targetPort: 8000
+    - name: websecure
+      port: 443
+      targetPort: 8443</code></pre>
+</div>
+<hr class="border-slate-800 my-10" />
+<h2 id="4-in-memory-sidecar-logging-eliminating-disk-pressure" class="text-2xl md:text-3xl font-bold text-white tracking-tight mt-14 mb-4 pt-8 border-t border-slate-800/80 flex items-center gap-2"><a href="#4-in-memory-sidecar-logging-eliminating-disk-pressure" class="text-sky-500 hover:underline">#</a> 4. In-Memory Sidecar Logging: Eliminating Disk Pressure</h2>
+<p class="text-slate-300 text-base md:text-lg leading-relaxed my-4">High-frequency attack storms generate immense audit logging. Writing unbuffered JSON logs directly to node filesystems risks rapid disk fill, triggering Kubelet <code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">DiskPressure</code> and crashing workloads.</p>
+
+<div class="relative my-8 group rounded-xl overflow-hidden border border-slate-800 bg-slate-950 shadow-2xl">
+  <div class="flex items-center justify-between px-4 py-2 bg-slate-900 border-b border-slate-800 text-xs font-mono text-slate-400">
+    <span class="font-semibold text-slate-300">text</span>
+    <button onclick="navigator.clipboard.writeText(this.parentElement.nextElementSibling.innerText); this.innerText='Copied!'; setTimeout(()=>this.innerText='Copy', 2000)" class="hover:text-white transition px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs">Copy</button>
+  </div>
+  <pre class="p-4 text-xs font-mono text-slate-200 overflow-x-auto leading-relaxed"><code>┌────────────────────────────────────────────────────────────────────────┐
+│                   Coraza WAF Pod In-Memory Isolation                   │
+│                                                                        │
+│   ┌───────────────────────────┐      ┌──────────────────────────────┐  │
+│   │ Coraza WAF Container      │      │ Fluent Bit Sidecar           │  │
+│   │ • Pure Go Proxy (:80)     │      │ • Mem_Buf_Limit 16MB         │  │
+│   │ • SecLang Engine          │      │ • Tails RAM log stream       │  │
+│   │ • CPU: 50m / RAM: 128Mi   │      │ • RAM: 24Mi                  │  │
+│   └─────────────┬─────────────┘      └──────────────▲───────────────┘  │
+│                 │                                   │                  │
+│                 ▼ Writes JSON                       │ Ships to         │
+│         ┌───────────────────────────────────────────┴──────────┐       │
+│         │ Shared In-Memory emptyDir: sizeLimit 64Mi (tmpfs)    │       │
+│         │ Path: /var/log/waf/audit.log                         │       │
+│         │ ⚡ rotate-logs.sh truncates at 5MB (Zero Disk I/O)    │       │
+│         └──────────────────────────────────────────────────────┘       │
+└────────────────────────────────────────────────────────────────────────┘</code></pre>
+</div>
+<p class="text-slate-300 text-base md:text-lg leading-relaxed my-4">The self-truncating rotation daemon runs inside the container:</p>
+
+<div class="relative my-8 group rounded-xl overflow-hidden border border-slate-800 bg-slate-950 shadow-2xl">
+  <div class="flex items-center justify-between px-4 py-2 bg-slate-900 border-b border-slate-800 text-xs font-mono text-slate-400">
+    <span class="font-semibold text-slate-300">bash</span>
+    <button onclick="navigator.clipboard.writeText(this.parentElement.nextElementSibling.innerText); this.innerText='Copied!'; setTimeout(()=>this.innerText='Copy', 2000)" class="hover:text-white transition px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs">Copy</button>
+  </div>
+  <pre class="p-4 text-xs font-mono text-slate-200 overflow-x-auto leading-relaxed"><code>#!/bin/sh
+# deploy/rotate-logs.sh
+LOG_FILE=&quot;/var/log/waf/audit.log&quot;
+MAX_BYTES=5242880  # 5 MB threshold
+
+while true; do
+  if [ -f &quot;$LOG_FILE&quot; ]; then
+    SIZE=$(wc -c &lt; &quot;$LOG_FILE&quot; 2&gt;/dev/null || echo 0)
+    if [ &quot;$SIZE&quot; -ge &quot;$MAX_BYTES&quot; ]; then
+      cp &quot;$LOG_FILE&quot; &quot;${LOG_FILE}.1&quot;
+      : &gt; &quot;$LOG_FILE&quot;
+      echo &quot;[$(date -u +%Y-%m-%dT%H:%M:%SZ)] Log truncated ($SIZE bytes)&quot;
+    fi
+  fi
+  sleep 15
+done</code></pre>
+</div>
+<hr class="border-slate-800 my-10" />
+<h2 id="5-coraza-v3-waf-architecture-native-management-console" class="text-2xl md:text-3xl font-bold text-white tracking-tight mt-14 mb-4 pt-8 border-t border-slate-800/80 flex items-center gap-2"><a href="#5-coraza-v3-waf-architecture-native-management-console" class="text-sky-500 hover:underline">#</a> 5. Coraza v3 WAF Architecture & Native Management Console</h2>
+<p class="text-slate-300 text-base md:text-lg leading-relaxed my-4">Our WAF reverse proxy is built using <strong class="text-white font-semibold">Coraza v3 (<code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">corazawaf/coraza/v3</code>)</strong> and <strong class="text-white font-semibold">Coraza Core Rule Set (<code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">corazawaf/coraza-coreruleset/v4</code>)</strong>.</p>
+
+<div class="relative my-8 group rounded-xl overflow-hidden border border-slate-800 bg-slate-950 shadow-2xl">
+  <div class="flex items-center justify-between px-4 py-2 bg-slate-900 border-b border-slate-800 text-xs font-mono text-slate-400">
+    <span class="font-semibold text-slate-300">dockerfile</span>
+    <button onclick="navigator.clipboard.writeText(this.parentElement.nextElementSibling.innerText); this.innerText='Copied!'; setTimeout(()=>this.innerText='Copy', 2000)" class="hover:text-white transition px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs">Copy</button>
+  </div>
+  <pre class="p-4 text-xs font-mono text-slate-200 overflow-x-auto leading-relaxed"><code># coraza-waf/Dockerfile
+FROM golang:1.22-alpine AS builder
+WORKDIR /build
+COPY main.go ui.html ./
+RUN go mod init coraza-waf-defense &amp;&amp;     go get github.com/corazawaf/coraza/v3@v3.2.1 \
+           github.com/corazawaf/coraza-coreruleset/v4@v4.3.0 &amp;&amp;     go mod tidy &amp;&amp;     CGO_ENABLED=0 GOOS=linux go build -ldflags=&quot;-s -w&quot; -o /coraza-waf-server main.go
+
+FROM alpine:3.20
+RUN apk add --no-cache ca-certificates
+COPY --from=builder /coraza-waf-server /usr/local/bin/coraza-waf-server
+EXPOSE 80 8080
+ENTRYPOINT [&quot;/usr/local/bin/coraza-waf-server&quot;]</code></pre>
+</div>
+<h3 id="zero-downtime-hot-reloading-main-go" class="text-xl md:text-2xl font-semibold text-slate-100 tracking-tight mt-8 mb-3">Zero-Downtime Hot-Reloading (`main.go`)</h3>
+<p class="text-slate-300 text-base md:text-lg leading-relaxed my-4">Rules are recompiled in-memory and swapped atomically using Go's <code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">sync/atomic</code>:</p>
+
+<div class="relative my-8 group rounded-xl overflow-hidden border border-slate-800 bg-slate-950 shadow-2xl">
+  <div class="flex items-center justify-between px-4 py-2 bg-slate-900 border-b border-slate-800 text-xs font-mono text-slate-400">
+    <span class="font-semibold text-slate-300">go</span>
+    <button onclick="navigator.clipboard.writeText(this.parentElement.nextElementSibling.innerText); this.innerText='Copied!'; setTimeout(()=>this.innerText='Copy', 2000)" class="hover:text-white transition px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs">Copy</button>
+  </div>
+  <pre class="p-4 text-xs font-mono text-slate-200 overflow-x-auto leading-relaxed"><code>// coraza-waf/main.go
+var activeWAF atomic.Pointer[coraza.WAF]
+
+func updateConfig(newConfig WAFConfig) error {
+    newWAF, err := compileWAF(newConfig)
+    if err != nil {
+        return fmt.Errorf(&quot;compilation failed: %w&quot;, err)
+    }
+    // Atomic pointer swap: Zero dropped requests, zero downtime
+    activeWAF.Store(&amp;newWAF)
+    return nil
+}</code></pre>
+</div>
+<h3 id="visual-native-coraza-management-console-8080" class="text-xl md:text-2xl font-semibold text-slate-100 tracking-tight mt-8 mb-3">Visual: Native Coraza Management Console (`:8080`)</h3>
+<p class="text-slate-300 text-base md:text-lg leading-relaxed my-4">The web UI provides real-time rule group toggling, a SecLang playground, and a dedicated threat intelligence management console:</p>
+
+<figure class="my-10 rounded-xl overflow-hidden border border-slate-800 bg-slate-900 shadow-2xl">
+  <img src="/images/coraza_waf_console_rules.png" onerror="this.onerror=null; this.src='https://raw.githubusercontent.com/saadrana219/coraza-waf-k8s-defense/main/docs/images/coraza_waf_console_rules.png';" alt="Coraza WAF Management Console - OWASP Rule Groups" class="w-full object-cover hover:scale-[1.01] transition duration-300" loading="lazy" />
+  <figcaption class="p-3.5 text-center text-xs font-mono text-slate-400 bg-slate-950 border-t border-slate-800">📸 Coraza WAF Management Console - OWASP Rule Groups</figcaption>
+</figure>
+<p class="text-slate-300 text-base md:text-lg leading-relaxed my-4"><em class="italic text-slate-300">Figure 1: Coraza v3 Management Console showing global SecRuleEngine settings (On - Active Blocking 403), Paranoia Level 1, and the 10 granular OWASP Top 10 rule group cards.</em></p>
+<hr class="border-slate-800 my-10" />
+<h2 id="6-real-time-telemetry-complete-24-hour-dashboard-showcase" class="text-2xl md:text-3xl font-bold text-white tracking-tight mt-14 mb-4 pt-8 border-t border-slate-800/80 flex items-center gap-2"><a href="#6-real-time-telemetry-complete-24-hour-dashboard-showcase" class="text-sky-500 hover:underline">#</a> 6. Real-Time Telemetry: Complete 24-Hour Dashboard Showcase</h2>
+<p class="text-slate-300 text-base md:text-lg leading-relaxed my-4">All audit logs shipped via Fluent Bit pass through the <code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">network-geoip-pipeline</code> and populate our custom dashboards:</p>
+<h3 id="visual-coraza-waf-owasp-threat-intelligence-dashboard-dashboard-7-24h-window" class="text-xl md:text-2xl font-semibold text-slate-100 tracking-tight mt-8 mb-3">Visual: Coraza WAF & OWASP Threat Intelligence Dashboard (Dashboard 7 - 24h Window)</h3>
+
+<figure class="my-10 rounded-xl overflow-hidden border border-slate-800 bg-slate-900 shadow-2xl">
+  <img src="/images/opensearch_dashboard_waf_top.png" onerror="this.onerror=null; this.src='https://raw.githubusercontent.com/saadrana219/coraza-waf-k8s-defense/main/docs/images/opensearch_dashboard_waf_top.png';" alt="OpenSearch Coraza WAF & Threat Intelligence Dashboard" class="w-full object-cover hover:scale-[1.01] transition duration-300" loading="lazy" />
+  <figcaption class="p-3.5 text-center text-xs font-mono text-slate-400 bg-slate-950 border-t border-slate-800">📸 OpenSearch Coraza WAF & Threat Intelligence Dashboard</figcaption>
+</figure>
+<p class="text-slate-300 text-base md:text-lg leading-relaxed my-4"><em class="italic text-slate-300">Figure 2: OpenSearch Dashboard 7 (Last 24 Hours) displaying 119 total inspected requests, 34 blocked attacks, 25 critical OWASP hits, 18 Rule 100020 IP blocklist drops, attack traffic timelines, live world coordinate maps with pins, and country choropleth distribution.</em></p>
+<h3 id="visual-deep-dive-exploit-attribution-payloads-table-dashboard-7-full" class="text-xl md:text-2xl font-semibold text-slate-100 tracking-tight mt-8 mb-3">Visual: Deep Dive Exploit Attribution & Payloads Table (Dashboard 7 Full)</h3>
+
+<figure class="my-10 rounded-xl overflow-hidden border border-slate-800 bg-slate-900 shadow-2xl">
+  <img src="/images/opensearch_dashboard_waf_full.png" onerror="this.onerror=null; this.src='https://raw.githubusercontent.com/saadrana219/coraza-waf-k8s-defense/main/docs/images/opensearch_dashboard_waf_full.png';" alt="OpenSearch WAF Full Exploit Attribution & Payloads" class="w-full object-cover hover:scale-[1.01] transition duration-300" loading="lazy" />
+  <figcaption class="p-3.5 text-center text-xs font-mono text-slate-400 bg-slate-950 border-t border-slate-800">📸 OpenSearch WAF Full Exploit Attribution & Payloads</figcaption>
+</figure>
+<p class="text-slate-300 text-base md:text-lg leading-relaxed my-4"><em class="italic text-slate-300">Figure 3: OpenSearch Dashboard 7 Full Length view featuring the Permanently Blocked Attacker IPs table, Exploit Reasoning & Attribution table, and the Raw Blocked Payloads table showing exact exploit signatures (<code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">/api/exec</code>, <code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">eval-stdin.php</code>, <code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">/.env</code>).</em></p>
+<h3 id="visual-ingress-network-traffic-telemetry-dashboard-4-24h-window" class="text-xl md:text-2xl font-semibold text-slate-100 tracking-tight mt-8 mb-3">Visual: Ingress & Network Traffic Telemetry (Dashboard 4 - 24h Window)</h3>
+
+<figure class="my-10 rounded-xl overflow-hidden border border-slate-800 bg-slate-900 shadow-2xl">
+  <img src="/images/opensearch_dashboard_network_ingress.png" onerror="this.onerror=null; this.src='https://raw.githubusercontent.com/saadrana219/coraza-waf-k8s-defense/main/docs/images/opensearch_dashboard_network_ingress.png';" alt="OpenSearch Network Ingress & GeoIP Traffic Dashboard" class="w-full object-cover hover:scale-[1.01] transition duration-300" loading="lazy" />
+  <figcaption class="p-3.5 text-center text-xs font-mono text-slate-400 bg-slate-950 border-t border-slate-800">📸 OpenSearch Network Ingress & GeoIP Traffic Dashboard</figcaption>
+</figure>
+<p class="text-slate-300 text-base md:text-lg leading-relaxed my-4"><em class="italic text-slate-300">Figure 4: OpenSearch Dashboard 4 (Network & Ingress) showing external ingress request rates, HTTP status breakdown, Top Public Client IPs, MaxMind GeoIP distribution, and Top User Agents.</em></p>
+<h3 id="visual-security-analytics-threat-intelligence-dashboard-8-24h-window" class="text-xl md:text-2xl font-semibold text-slate-100 tracking-tight mt-8 mb-3">Visual: Security Analytics & Threat Intelligence (Dashboard 8 - 24h Window)</h3>
+
+<figure class="my-10 rounded-xl overflow-hidden border border-slate-800 bg-slate-900 shadow-2xl">
+  <img src="/images/opensearch_dashboard_security_analytics.png" onerror="this.onerror=null; this.src='https://raw.githubusercontent.com/saadrana219/coraza-waf-k8s-defense/main/docs/images/opensearch_dashboard_security_analytics.png';" alt="OpenSearch Security Analytics & Threat Intel Dashboard" class="w-full object-cover hover:scale-[1.01] transition duration-300" loading="lazy" />
+  <figcaption class="p-3.5 text-center text-xs font-mono text-slate-400 bg-slate-950 border-t border-slate-800">📸 OpenSearch Security Analytics & Threat Intel Dashboard</figcaption>
+</figure>
+<p class="text-slate-300 text-base md:text-lg leading-relaxed my-4"><em class="italic text-slate-300">Figure 5: OpenSearch Dashboard 8 displaying AlienVault OTX Threat Intel hits, 609 malicious IOC match timeline, security findings categorized by criticality, and 5-minute sliding window correlation rules.</em></p>
+<h3 id="visual-security-kubernetes-api-audit-trail-dashboard-5-24h-window" class="text-xl md:text-2xl font-semibold text-slate-100 tracking-tight mt-8 mb-3">Visual: Security & Kubernetes API Audit Trail (Dashboard 5 - 24h Window)</h3>
+
+<figure class="my-10 rounded-xl overflow-hidden border border-slate-800 bg-slate-900 shadow-2xl">
+  <img src="/images/opensearch_dashboard_audit_security.png" onerror="this.onerror=null; this.src='https://raw.githubusercontent.com/saadrana219/coraza-waf-k8s-defense/main/docs/images/opensearch_dashboard_audit_security.png';" alt="OpenSearch Security & K8s API Audit Dashboard" class="w-full object-cover hover:scale-[1.01] transition duration-300" loading="lazy" />
+  <figcaption class="p-3.5 text-center text-xs font-mono text-slate-400 bg-slate-950 border-t border-slate-800">📸 OpenSearch Security & K8s API Audit Dashboard</figcaption>
+</figure>
+<p class="text-slate-300 text-base md:text-lg leading-relaxed my-4"><em class="italic text-slate-300">Figure 6: OpenSearch Dashboard 5 tracking Kubernetes control-plane audit events, unauthorized 401/403 RBAC access attempts, verbs, resource types, and host <code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">/var/log/auth.log</code> authentication attempts.</em></p>
+<h3 id="visual-prometheus-operations-metrics-alert-history-dashboard-6-24h-window" class="text-xl md:text-2xl font-semibold text-slate-100 tracking-tight mt-8 mb-3">Visual: Prometheus Operations Metrics & Alert History (Dashboard 6 - 24h Window)</h3>
+
+<figure class="my-10 rounded-xl overflow-hidden border border-slate-800 bg-slate-900 shadow-2xl">
+  <img src="/images/opensearch_dashboard_prometheus_alerts.png" onerror="this.onerror=null; this.src='https://raw.githubusercontent.com/saadrana219/coraza-waf-k8s-defense/main/docs/images/opensearch_dashboard_prometheus_alerts.png';" alt="OpenSearch Prometheus Ops & Alert History Dashboard" class="w-full object-cover hover:scale-[1.01] transition duration-300" loading="lazy" />
+  <figcaption class="p-3.5 text-center text-xs font-mono text-slate-400 bg-slate-950 border-t border-slate-800">📸 OpenSearch Prometheus Ops & Alert History Dashboard</figcaption>
+</figure>
+<p class="text-slate-300 text-base md:text-lg leading-relaxed my-4"><em class="italic text-slate-300">Figure 7: OpenSearch Dashboard 6 summarizing per-node CPU/RAM/Disk metrics across 5 nodes, Longhorn PVC volume utilization percentages, workload failure diagnostics, and AWS SES alert delivery history.</em></p>
+<h3 id="visual-cluster-workload-health-dashboard-1-24h-window" class="text-xl md:text-2xl font-semibold text-slate-100 tracking-tight mt-8 mb-3">Visual: Cluster & Workload Health (Dashboard 1 - 24h Window)</h3>
+
+<figure class="my-10 rounded-xl overflow-hidden border border-slate-800 bg-slate-900 shadow-2xl">
+  <img src="/images/opensearch_dashboard_cluster_health.png" onerror="this.onerror=null; this.src='https://raw.githubusercontent.com/saadrana219/coraza-waf-k8s-defense/main/docs/images/opensearch_dashboard_cluster_health.png';" alt="OpenSearch Cluster & Workload Health Dashboard" class="w-full object-cover hover:scale-[1.01] transition duration-300" loading="lazy" />
+  <figcaption class="p-3.5 text-center text-xs font-mono text-slate-400 bg-slate-950 border-t border-slate-800">📸 OpenSearch Cluster & Workload Health Dashboard</figcaption>
+</figure>
+<p class="text-slate-300 text-base md:text-lg leading-relaxed my-4"><em class="italic text-slate-300">Figure 8: OpenSearch Dashboard 1 showing 5-node cluster readiness, containerd and kubelet systemd journal streams, and container restart monitors.</em></p>
+<h3 id="visual-error-exception-logs-dashboard-3-24h-window" class="text-xl md:text-2xl font-semibold text-slate-100 tracking-tight mt-8 mb-3">Visual: Error & Exception Logs (Dashboard 3 - 24h Window)</h3>
+
+<figure class="my-10 rounded-xl overflow-hidden border border-slate-800 bg-slate-900 shadow-2xl">
+  <img src="/images/opensearch_dashboard_error_logs.png" onerror="this.onerror=null; this.src='https://raw.githubusercontent.com/saadrana219/coraza-waf-k8s-defense/main/docs/images/opensearch_dashboard_error_logs.png';" alt="OpenSearch Error & Exception Logs Dashboard" class="w-full object-cover hover:scale-[1.01] transition duration-300" loading="lazy" />
+  <figcaption class="p-3.5 text-center text-xs font-mono text-slate-400 bg-slate-950 border-t border-slate-800">📸 OpenSearch Error & Exception Logs Dashboard</figcaption>
+</figure>
+<p class="text-slate-300 text-base md:text-lg leading-relaxed my-4"><em class="italic text-slate-300">Figure 9: OpenSearch Dashboard 3 tracking runtime exceptions, tracebacks, HTTP 5xx spikes, and application crash events across workloads.</em></p>
+<h3 id="visual-application-workload-sidecar-streams-dashboard-2-24h-window" class="text-xl md:text-2xl font-semibold text-slate-100 tracking-tight mt-8 mb-3">Visual: Application Workload Sidecar Streams (Dashboard 2 - 24h Window)</h3>
+
+<figure class="my-10 rounded-xl overflow-hidden border border-slate-800 bg-slate-900 shadow-2xl">
+  <img src="/images/opensearch_dashboard_app_logs.png" onerror="this.onerror=null; this.src='https://raw.githubusercontent.com/saadrana219/coraza-waf-k8s-defense/main/docs/images/opensearch_dashboard_app_logs.png';" alt="OpenSearch Application Sidecar Logs Dashboard" class="w-full object-cover hover:scale-[1.01] transition duration-300" loading="lazy" />
+  <figcaption class="p-3.5 text-center text-xs font-mono text-slate-400 bg-slate-950 border-t border-slate-800">📸 OpenSearch Application Sidecar Logs Dashboard</figcaption>
+</figure>
+<p class="text-slate-300 text-base md:text-lg leading-relaxed my-4"><em class="italic text-slate-300">Figure 10: OpenSearch Dashboard 2 reviewing application stdout/stderr logs shipped in real-time from Fluent Bit in-memory sidecars.</em></p>
+<hr class="border-slate-800 my-10" />
+<h2 id="7-autonomous-attacker-ip-defense-self-healing-waf-loop" class="text-2xl md:text-3xl font-bold text-white tracking-tight mt-14 mb-4 pt-8 border-t border-slate-800/80 flex items-center gap-2"><a href="#7-autonomous-attacker-ip-defense-self-healing-waf-loop" class="text-sky-500 hover:underline">#</a> 7. Autonomous Attacker IP Defense (Self-Healing WAF Loop)</h2>
+<p class="text-slate-300 text-base md:text-lg leading-relaxed my-4">Rather than forcing human operators to review logs and manually update firewalls, our autonomous defense worker continuously evaluates attack telemetry and dynamically isolates hostile IP addresses.</p>
+<div class="mermaid my-8 p-6 bg-slate-900/90 border border-slate-800 rounded-xl overflow-x-auto text-center shadow-2xl">flowchart TD
+    Daemon["Autonomous Defense Daemon<br>(Runs every 60s in cluster)"] --> Query["Query OpenSearch logs-waf-*<br>Date Histogram Aggregation (15m sliding window)"]
+    Query --> Check{"Any external IP with<br>more than 5 attacks in 15m?"}
+    Check -->|No| Sleep["Sleep 60s"]
+    Check -->|Yes| SubnetCheck{"Is IP in Safe Subnets?<br>(RFC1918 / Pod CIDR / Loopback)"}
+    SubnetCheck -->|Yes Private| Ignore["Protect Private Subnet & Ignore"]
+    SubnetCheck -->|No Public| FetchConfig["Fetch Coraza WAF Config<br>GET http://coraza-waf-service:8080/api/config"]
+    FetchConfig --> CheckDupe{"Already Blocked?"}
+    CheckDupe -->|Yes| Sleep
+    CheckDupe -->|No| AddRule["Append IP to Blocklist<br>Generate SecRule 100020 @ipMatch"]
+    AddRule --> PostReload["Hot-Reload Coraza WAF Engine<br>POST http://coraza-waf-service:8080/api/config"]
+    PostReload --> EmailAlert["Dispatch AWS SES Executive Alert<br>(secops@hypatian.com)"]</div>
+<h3 id="visual-quarantined-attacker-ips-threat-intelligence-table" class="text-xl md:text-2xl font-semibold text-slate-100 tracking-tight mt-8 mb-3">Visual: Quarantined Attacker IPs & Threat Intelligence Table</h3>
+
+<figure class="my-10 rounded-xl overflow-hidden border border-slate-800 bg-slate-900 shadow-2xl">
+  <img src="/images/coraza_waf_blocked_ips_tab.png" onerror="this.onerror=null; this.src='https://raw.githubusercontent.com/saadrana219/coraza-waf-k8s-defense/main/docs/images/coraza_waf_blocked_ips_tab.png';" alt="Coraza WAF Quarantined Attacker IPs & Threat Intelligence Table" class="w-full object-cover hover:scale-[1.01] transition duration-300" loading="lazy" />
+  <figcaption class="p-3.5 text-center text-xs font-mono text-slate-400 bg-slate-950 border-t border-slate-800">📸 Coraza WAF Quarantined Attacker IPs & Threat Intelligence Table</figcaption>
+</figure>
+<p class="text-slate-300 text-base md:text-lg leading-relaxed my-4"><em class="italic text-slate-300">Figure 11: Coraza WAF Console Tab 2 showing quarantined attacker IPs, burst thresholds, attack vectors (RCE, SQLi, webshells), sample payloads (<code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">/api/exec</code>), country origins, and ⚡ Instant Unblock controls.</em></p>
+<h3 id="real-world-attackers-quarantined" class="text-xl md:text-2xl font-semibold text-slate-100 tracking-tight mt-8 mb-3">Real-World Attackers Quarantined</h3>
+<div class="overflow-x-auto my-8 shadow-xl rounded-xl border border-slate-800"><table class="min-w-full text-left text-sm">
+<thead class="bg-slate-900 text-slate-200 uppercase font-mono text-xs tracking-wider"><tr>
+<th class="px-5 py-3.5 font-semibold border-b border-slate-800">Blocked Client IP</th>
+<th class="px-5 py-3.5 font-semibold border-b border-slate-800">Peak Burst</th>
+<th class="px-5 py-3.5 font-semibold border-b border-slate-800">Attack Vector & Payload</th>
+<th class="px-5 py-3.5 font-semibold border-b border-slate-800">Geolocation Origin</th>
+<th class="px-5 py-3.5 font-semibold border-b border-slate-800">Threat Intel Status</th>
+</tr></thead><tbody class="divide-y divide-slate-800/80 bg-slate-950/70">
+<tr class="hover:bg-slate-800/40 transition">
+<td class="px-5 py-3.5 text-slate-300 font-mono text-xs">:---</td>
+<td class="px-5 py-3.5 text-slate-300 font-mono text-xs">:---</td>
+<td class="px-5 py-3.5 text-slate-300 font-mono text-xs">:---</td>
+<td class="px-5 py-3.5 text-slate-300 font-mono text-xs">:---</td>
+<td class="px-5 py-3.5 text-slate-300 font-mono text-xs">:---</td>
+</tr>
+<tr class="hover:bg-slate-800/40 transition">
+<td class="px-5 py-3.5 text-slate-300 font-mono text-xs"><strong class="text-white font-semibold"><code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">31.57.34.150</code></strong></td>
+<td class="px-5 py-3.5 text-slate-300 font-mono text-xs"><strong class="text-white font-semibold">48 req / 15m</strong></td>
+<td class="px-5 py-3.5 text-slate-300 font-mono text-xs">PHP Webshell Probe (<code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">eval-stdin.php; /bin/sh</code>)</td>
+<td class="px-5 py-3.5 text-slate-300 font-mono text-xs">🇮🇷 Iran</td>
+<td class="px-5 py-3.5 text-slate-300 font-mono text-xs">AlienVault OTX High Risk</td>
+</tr>
+<tr class="hover:bg-slate-800/40 transition">
+<td class="px-5 py-3.5 text-slate-300 font-mono text-xs"><strong class="text-white font-semibold"><code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">216.180.246.112</code></strong></td>
+<td class="px-5 py-3.5 text-slate-300 font-mono text-xs"><strong class="text-white font-semibold">18 req / 15m</strong></td>
+<td class="px-5 py-3.5 text-slate-300 font-mono text-xs">Admin Recon Probing (<code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">/wp-admin</code>, <code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">.env</code>)</td>
+<td class="px-5 py-3.5 text-slate-300 font-mono text-xs">🇺🇸 United States (Lithonia)</td>
+<td class="px-5 py-3.5 text-slate-300 font-mono text-xs">Automated Scanner</td>
+</tr>
+<tr class="hover:bg-slate-800/40 transition">
+<td class="px-5 py-3.5 text-slate-300 font-mono text-xs"><strong class="text-white font-semibold"><code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">216.180.246.38</code></strong></td>
+<td class="px-5 py-3.5 text-slate-300 font-mono text-xs"><strong class="text-white font-semibold">11 req / 15m</strong></td>
+<td class="px-5 py-3.5 text-slate-300 font-mono text-xs">Automated Vulnerability Probing</td>
+<td class="px-5 py-3.5 text-slate-300 font-mono text-xs">🇺🇸 United States (Lithonia)</td>
+<td class="px-5 py-3.5 text-slate-300 font-mono text-xs">Scanning Botnet Subnet</td>
+</tr>
+<tr class="hover:bg-slate-800/40 transition">
+<td class="px-5 py-3.5 text-slate-300 font-mono text-xs"><strong class="text-white font-semibold"><code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">103.253.41.98</code></strong></td>
+<td class="px-5 py-3.5 text-slate-300 font-mono text-xs"><strong class="text-white font-semibold">7 req / 15m</strong></td>
+<td class="px-5 py-3.5 text-slate-300 font-mono text-xs">RCE Command Injection (<code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">/api/exec; cat /etc/passwd</code>)</td>
+<td class="px-5 py-3.5 text-slate-300 font-mono text-xs">🇭🇰 Hong Kong</td>
+<td class="px-5 py-3.5 text-slate-300 font-mono text-xs">Known Malicious Host</td>
+</tr>
+<tr class="hover:bg-slate-800/40 transition">
+<td class="px-5 py-3.5 text-slate-300 font-mono text-xs"><strong class="text-white font-semibold"><code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">123.58.215.74</code></strong></td>
+<td class="px-5 py-3.5 text-slate-300 font-mono text-xs"><strong class="text-white font-semibold">7 req / 15m</strong></td>
+<td class="px-5 py-3.5 text-slate-300 font-mono text-xs">Scanner Recon Probing (<code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">/favicon.ico</code>, <code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">/v1</code>)</td>
+<td class="px-5 py-3.5 text-slate-300 font-mono text-xs">🇨🇳 China</td>
+<td class="px-5 py-3.5 text-slate-300 font-mono text-xs">Automated Scanner</td>
+</tr>
+<tr class="hover:bg-slate-800/40 transition">
+<td class="px-5 py-3.5 text-slate-300 font-mono text-xs"><strong class="text-white font-semibold"><code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">46.101.180.175</code></strong></td>
+<td class="px-5 py-3.5 text-slate-300 font-mono text-xs"><strong class="text-white font-semibold">7 req / 15m</strong></td>
+<td class="px-5 py-3.5 text-slate-300 font-mono text-xs">Odin Scanner Probing (<code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">/HNAP1</code>, <code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">/sdk</code>)</td>
+<td class="px-5 py-3.5 text-slate-300 font-mono text-xs">🇩🇪 Germany (Frankfurt)</td>
+<td class="px-5 py-3.5 text-slate-300 font-mono text-xs">Automated Exploit Bot</td>
+</tr>
+<tr class="hover:bg-slate-800/40 transition">
+<td class="px-5 py-3.5 text-slate-300 font-mono text-xs"><strong class="text-white font-semibold"><code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">185.220.101.45</code></strong></td>
+<td class="px-5 py-3.5 text-slate-300 font-mono text-xs"><strong class="text-white font-semibold">6 req / 15m</strong></td>
+<td class="px-5 py-3.5 text-slate-300 font-mono text-xs">SQL Injection (<code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">UNION SELECT 1,password FROM users--</code>)</td>
+<td class="px-5 py-3.5 text-slate-300 font-mono text-xs">🇩🇪 Germany</td>
+<td class="px-5 py-3.5 text-slate-300 font-mono text-xs">Tor Exit Node</td>
+</tr>
+</tbody></table></div>
+<hr class="border-slate-800 my-10" />
+<h2 id="8-eliminating-alert-fatigue-with-burst-detectors" class="text-2xl md:text-3xl font-bold text-white tracking-tight mt-14 mb-4 pt-8 border-t border-slate-800/80 flex items-center gap-2"><a href="#8-eliminating-alert-fatigue-with-burst-detectors" class="text-sky-500 hover:underline">#</a> 8. Eliminating Alert Fatigue with Burst Detectors</h2>
+<p class="text-slate-300 text-base md:text-lg leading-relaxed my-4">Single-event alerts ruin on-call rotations. We deployed <strong class="text-white font-semibold">14 query-level burst monitors</strong> scheduled every 1 to 2 minutes:</p>
+
+<figure class="my-10 rounded-xl overflow-hidden border border-slate-800 bg-slate-900 shadow-2xl">
+  <img src="/images/opensearch_alert_monitors.png" onerror="this.onerror=null; this.src='https://raw.githubusercontent.com/saadrana219/coraza-waf-k8s-defense/main/docs/images/opensearch_alert_monitors.png';" alt="OpenSearch Alerting Monitors" class="w-full object-cover hover:scale-[1.01] transition duration-300" loading="lazy" />
+  <figcaption class="p-3.5 text-center text-xs font-mono text-slate-400 bg-slate-950 border-t border-slate-800">📸 OpenSearch Alerting Monitors</figcaption>
+</figure>
+<p class="text-slate-300 text-base md:text-lg leading-relaxed my-4"><em class="italic text-slate-300">Figure 12: OpenSearch Alerting Monitors console showing the 14 active monitors, criticality tiers ([CRITICAL - P1] through [LOW - P4]), and trigger states.</em></p>
+<h3 id="rich-alert-briefing-via-aws-ses" class="text-xl md:text-2xl font-semibold text-slate-100 tracking-tight mt-8 mb-3">Rich Alert Briefing via AWS SES</h3>
+<p class="text-slate-300 text-base md:text-lg leading-relaxed my-4">When a threshold breaches, engineers receive an enriched notification detailing exact hit rates, top targeted paths, and exploit payloads:</p>
+
+<div class="relative my-8 group rounded-xl overflow-hidden border border-slate-800 bg-slate-950 shadow-2xl">
+  <div class="flex items-center justify-between px-4 py-2 bg-slate-900 border-b border-slate-800 text-xs font-mono text-slate-400">
+    <span class="font-semibold text-slate-300">text</span>
+    <button onclick="navigator.clipboard.writeText(this.parentElement.nextElementSibling.innerText); this.innerText='Copied!'; setTimeout(()=>this.innerText='Copy', 2000)" class="hover:text-white transition px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs">Copy</button>
+  </div>
+  <pre class="p-4 text-xs font-mono text-slate-200 overflow-x-auto leading-relaxed"><code>🚨 [CRITICAL - P1] High-Rate SQL Injection Attack Burst Detected
+──────────────────────────────────────────────────────────────────
+Cluster: k8s-production | Engine: Coraza v3 WAF | Rule Group: RG-942
+Total Blocked Requests: 24 requests in last 120s (~12 attacks/min)
+
+🎯 Top Targeted Endpoints:
+  • /api/users/login (18 hits)
+  • /search?q= (6 hits)
+
+🚨 Top Attacking External Client IPs:
+  • 185.220.101.45 (16 blocked attempts) — 🇩🇪 Germany
+  • 103.253.41.98 (8 blocked attempts) — 🇭🇰 Hong Kong
+
+🔍 Extracted Exploit Payload:
+  Matched Data: &#x27; UNION SELECT 1,username,password FROM accounts--
+
+⚡ Automated Action Taken:
+  All requests dropped with HTTP 403 Forbidden.
+  Offending IPs exceeding 5 attacks in 15m quarantined via SecRule 100020.</code></pre>
+</div>
+<hr class="border-slate-800 my-10" />
+<h2 id="9-executive-multi-page-pdf-reporting" class="text-2xl md:text-3xl font-bold text-white tracking-tight mt-14 mb-4 pt-8 border-t border-slate-800/80 flex items-center gap-2"><a href="#9-executive-multi-page-pdf-reporting" class="text-sky-500 hover:underline">#</a> 9. Executive Multi-Page PDF Reporting</h2>
+<p class="text-slate-300 text-base md:text-lg leading-relaxed my-4">To keep leadership informed without manual dashboard exports, our Kubernetes CronJob generates and emails two multi-page PDF reports every Sunday at 08:00 EST / 13:00 UTC:</p>
+<h3 id="visual-weekly-security-coraza-waf-performance-report" class="text-xl md:text-2xl font-semibold text-slate-100 tracking-tight mt-8 mb-3">Visual: Weekly Security & Coraza WAF Performance Report</h3>
+<div class="overflow-x-auto my-8 shadow-xl rounded-xl border border-slate-800"><table class="min-w-full text-left text-sm">
+<thead class="bg-slate-900 text-slate-200 uppercase font-mono text-xs tracking-wider"><tr>
+<th class="px-5 py-3.5 font-semibold border-b border-slate-800">Page 1: WAF Metrics & Top Attacking IPs</th>
+<th class="px-5 py-3.5 font-semibold border-b border-slate-800">Page 2: K8s Audit & Alerts by Severity</th>
+</tr></thead><tbody class="divide-y divide-slate-800/80 bg-slate-950/70">
+<tr class="hover:bg-slate-800/40 transition">
+<td class="px-5 py-3.5 text-slate-300 font-mono text-xs">:---:</td>
+<td class="px-5 py-3.5 text-slate-300 font-mono text-xs">:---:</td>
+</tr>
+<tr class="hover:bg-slate-800/40 transition">
+<td class="px-5 py-3.5 text-slate-300 font-mono text-xs">!<a href="docs/images/weekly_security_report_p1.png" target="_blank" rel="noopener noreferrer" class="text-sky-400 hover:text-sky-300 underline underline-offset-2 transition font-medium">Weekly Security Report Page 1</a></td>
+<td class="px-5 py-3.5 text-slate-300 font-mono text-xs">!<a href="docs/images/weekly_security_report_p2.png" target="_blank" rel="noopener noreferrer" class="text-sky-400 hover:text-sky-300 underline underline-offset-2 transition font-medium">Weekly Security Report Page 2</a></td>
+</tr>
+</tbody></table></div>
+<h3 id="visual-weekly-cluster-uptime-ops-metrics-report" class="text-xl md:text-2xl font-semibold text-slate-100 tracking-tight mt-8 mb-3">Visual: Weekly Cluster Uptime & Ops Metrics Report</h3>
+<div class="overflow-x-auto my-8 shadow-xl rounded-xl border border-slate-800"><table class="min-w-full text-left text-sm">
+<thead class="bg-slate-900 text-slate-200 uppercase font-mono text-xs tracking-wider"><tr>
+<th class="px-5 py-3.5 font-semibold border-b border-slate-800">Page 1: 5-Node Resource Utilization</th>
+<th class="px-5 py-3.5 font-semibold border-b border-slate-800">Page 2: Workload & Pod Failure Diagnostics</th>
+</tr></thead><tbody class="divide-y divide-slate-800/80 bg-slate-950/70">
+<tr class="hover:bg-slate-800/40 transition">
+<td class="px-5 py-3.5 text-slate-300 font-mono text-xs">:---:</td>
+<td class="px-5 py-3.5 text-slate-300 font-mono text-xs">:---:</td>
+</tr>
+<tr class="hover:bg-slate-800/40 transition">
+<td class="px-5 py-3.5 text-slate-300 font-mono text-xs">!<a href="docs/images/weekly_cluster_ops_report_p1.png" target="_blank" rel="noopener noreferrer" class="text-sky-400 hover:text-sky-300 underline underline-offset-2 transition font-medium">Weekly Ops Report Page 1</a></td>
+<td class="px-5 py-3.5 text-slate-300 font-mono text-xs">!<a href="docs/images/weekly_cluster_ops_report_p2.png" target="_blank" rel="noopener noreferrer" class="text-sky-400 hover:text-sky-300 underline underline-offset-2 transition font-medium">Weekly Ops Report Page 2</a></td>
+</tr>
+</tbody></table></div>
+<hr class="border-slate-800 my-10" />
+<h2 id="10-step-by-step-reproduction-guide" class="text-2xl md:text-3xl font-bold text-white tracking-tight mt-14 mb-4 pt-8 border-t border-slate-800/80 flex items-center gap-2"><a href="#10-step-by-step-reproduction-guide" class="text-sky-500 hover:underline">#</a> 10. Step-by-Step Reproduction Guide</h2>
+<p class="text-slate-300 text-base md:text-lg leading-relaxed my-4">You can reproduce this defense stack on any Kubernetes cluster ($v1.26+$).</p>
+<h3 id="step-1-clone-the-dedicated-reference-repository" class="text-xl md:text-2xl font-semibold text-slate-100 tracking-tight mt-8 mb-3">Step 1: Clone the Dedicated Reference Repository</h3>
+
+<div class="relative my-8 group rounded-xl overflow-hidden border border-slate-800 bg-slate-950 shadow-2xl">
+  <div class="flex items-center justify-between px-4 py-2 bg-slate-900 border-b border-slate-800 text-xs font-mono text-slate-400">
+    <span class="font-semibold text-slate-300">bash</span>
+    <button onclick="navigator.clipboard.writeText(this.parentElement.nextElementSibling.innerText); this.innerText='Copied!'; setTimeout(()=>this.innerText='Copy', 2000)" class="hover:text-white transition px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs">Copy</button>
+  </div>
+  <pre class="p-4 text-xs font-mono text-slate-200 overflow-x-auto leading-relaxed"><code>git clone https://github.com/saadrana219/coraza-waf-k8s-defense.git
+cd coraza-waf-k8s-defense</code></pre>
+</div>
+<h3 id="step-2-deploy-opensearch-cluster-sidecars" class="text-xl md:text-2xl font-semibold text-slate-100 tracking-tight mt-8 mb-3">Step 2: Deploy OpenSearch Cluster & Sidecars</h3>
+
+<div class="relative my-8 group rounded-xl overflow-hidden border border-slate-800 bg-slate-950 shadow-2xl">
+  <div class="flex items-center justify-between px-4 py-2 bg-slate-900 border-b border-slate-800 text-xs font-mono text-slate-400">
+    <span class="font-semibold text-slate-300">bash</span>
+    <button onclick="navigator.clipboard.writeText(this.parentElement.nextElementSibling.innerText); this.innerText='Copied!'; setTimeout(()=>this.innerText='Copy', 2000)" class="hover:text-white transition px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs">Copy</button>
+  </div>
+  <pre class="p-4 text-xs font-mono text-slate-200 overflow-x-auto leading-relaxed"><code># Deploys 3-node OpenSearch 2.19.7, Dashboards, and Fluent Bit log collectors
+kubectl apply -f deploy/opensearch-logging.yaml
+kubectl rollout status statefulset/opensearch -n logging --timeout=300s</code></pre>
+</div>
+<h3 id="step-3-deploy-coraza-v3-waf-management-console" class="text-xl md:text-2xl font-semibold text-slate-100 tracking-tight mt-8 mb-3">Step 3: Deploy Coraza v3 WAF & Management Console</h3>
+
+<div class="relative my-8 group rounded-xl overflow-hidden border border-slate-800 bg-slate-950 shadow-2xl">
+  <div class="flex items-center justify-between px-4 py-2 bg-slate-900 border-b border-slate-800 text-xs font-mono text-slate-400">
+    <span class="font-semibold text-slate-300">bash</span>
+    <button onclick="navigator.clipboard.writeText(this.parentElement.nextElementSibling.innerText); this.innerText='Copied!'; setTimeout(()=>this.innerText='Copy', 2000)" class="hover:text-white transition px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs">Copy</button>
+  </div>
+  <pre class="p-4 text-xs font-mono text-slate-200 overflow-x-auto leading-relaxed"><code># Deploys Coraza reverse proxy, web console (:8080), and LoadBalancer service
+kubectl apply -f deploy/coraza-waf.yaml</code></pre>
+</div>
+<h3 id="step-4-import-opensearch-dashboards-88-saved-objects" class="text-xl md:text-2xl font-semibold text-slate-100 tracking-tight mt-8 mb-3">Step 4: Import OpenSearch Dashboards (88+ Saved Objects)</h3>
+
+<div class="relative my-8 group rounded-xl overflow-hidden border border-slate-800 bg-slate-950 shadow-2xl">
+  <div class="flex items-center justify-between px-4 py-2 bg-slate-900 border-b border-slate-800 text-xs font-mono text-slate-400">
+    <span class="font-semibold text-slate-300">bash</span>
+    <button onclick="navigator.clipboard.writeText(this.parentElement.nextElementSibling.innerText); this.innerText='Copied!'; setTimeout(()=>this.innerText='Copy', 2000)" class="hover:text-white transition px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs">Copy</button>
+  </div>
+  <pre class="p-4 text-xs font-mono text-slate-200 overflow-x-auto leading-relaxed"><code># Configures index patterns, GeoIP ingest pipelines, and imports all 8 dashboards
+python3 scripts/create_dashboards.py</code></pre>
+</div>
+<h3 id="step-5-provision-threat-burst-monitors-alert-channels" class="text-xl md:text-2xl font-semibold text-slate-100 tracking-tight mt-8 mb-3">Step 5: Provision Threat Burst Monitors & Alert Channels</h3>
+
+<div class="relative my-8 group rounded-xl overflow-hidden border border-slate-800 bg-slate-950 shadow-2xl">
+  <div class="flex items-center justify-between px-4 py-2 bg-slate-900 border-b border-slate-800 text-xs font-mono text-slate-400">
+    <span class="font-semibold text-slate-300">bash</span>
+    <button onclick="navigator.clipboard.writeText(this.parentElement.nextElementSibling.innerText); this.innerText='Copied!'; setTimeout(()=>this.innerText='Copy', 2000)" class="hover:text-white transition px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs">Copy</button>
+  </div>
+  <pre class="p-4 text-xs font-mono text-slate-200 overflow-x-auto leading-relaxed"><code># Deploys AWS SES notification channel and 14 high-rate burst monitors
+python3 scripts/create_alerts.py</code></pre>
+</div>
+<h3 id="step-6-provision-security-analytics-alienvault-threat-intel" class="text-xl md:text-2xl font-semibold text-slate-100 tracking-tight mt-8 mb-3">Step 6: Provision Security Analytics & AlienVault Threat Intel</h3>
+
+<div class="relative my-8 group rounded-xl overflow-hidden border border-slate-800 bg-slate-950 shadow-2xl">
+  <div class="flex items-center justify-between px-4 py-2 bg-slate-900 border-b border-slate-800 text-xs font-mono text-slate-400">
+    <span class="font-semibold text-slate-300">bash</span>
+    <button onclick="navigator.clipboard.writeText(this.parentElement.nextElementSibling.innerText); this.innerText='Copied!'; setTimeout(()=>this.innerText='Copy', 2000)" class="hover:text-white transition px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs">Copy</button>
+  </div>
+  <pre class="p-4 text-xs font-mono text-slate-200 overflow-x-auto leading-relaxed"><code># Configures dotless aliases, Sigma rules, and 5-minute correlation rules
+python3 scripts/create_security_detections.py</code></pre>
+</div>
+<h3 id="step-7-activate-the-autonomous-ip-blocker-daemon" class="text-xl md:text-2xl font-semibold text-slate-100 tracking-tight mt-8 mb-3">Step 7: Activate the Autonomous IP Blocker Daemon</h3>
+
+<div class="relative my-8 group rounded-xl overflow-hidden border border-slate-800 bg-slate-950 shadow-2xl">
+  <div class="flex items-center justify-between px-4 py-2 bg-slate-900 border-b border-slate-800 text-xs font-mono text-slate-400">
+    <span class="font-semibold text-slate-300">bash</span>
+    <button onclick="navigator.clipboard.writeText(this.parentElement.nextElementSibling.innerText); this.innerText='Copied!'; setTimeout(()=>this.innerText='Copy', 2000)" class="hover:text-white transition px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs">Copy</button>
+  </div>
+  <pre class="p-4 text-xs font-mono text-slate-200 overflow-x-auto leading-relaxed"><code># Runs immediate historical ban and starts 60s in-cluster enforcement
+python3 scripts/auto_block_waf_ips.py</code></pre>
+</div>
+<h3 id="step-8-deploy-weekly-pdf-report-dispatcher" class="text-xl md:text-2xl font-semibold text-slate-100 tracking-tight mt-8 mb-3">Step 8: Deploy Weekly PDF Report Dispatcher</h3>
+
+<div class="relative my-8 group rounded-xl overflow-hidden border border-slate-800 bg-slate-950 shadow-2xl">
+  <div class="flex items-center justify-between px-4 py-2 bg-slate-900 border-b border-slate-800 text-xs font-mono text-slate-400">
+    <span class="font-semibold text-slate-300">bash</span>
+    <button onclick="navigator.clipboard.writeText(this.parentElement.nextElementSibling.innerText); this.innerText='Copied!'; setTimeout(()=>this.innerText='Copy', 2000)" class="hover:text-white transition px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs">Copy</button>
+  </div>
+  <pre class="p-4 text-xs font-mono text-slate-200 overflow-x-auto leading-relaxed"><code>kubectl apply -f deploy/opensearch-reporter-configmap.yaml
+kubectl apply -f deploy/opensearch-weekly-reporter-cronjob.yaml</code></pre>
+</div>
+<hr class="border-slate-800 my-10" />
+<h2 id="11-verification-penetration-testing" class="text-2xl md:text-3xl font-bold text-white tracking-tight mt-14 mb-4 pt-8 border-t border-slate-800/80 flex items-center gap-2"><a href="#11-verification-penetration-testing" class="text-sky-500 hover:underline">#</a> 11. Verification & Penetration Testing</h2>
+<p class="text-slate-300 text-base md:text-lg leading-relaxed my-4">Verify your WAF and automated defense pipeline:</p>
+<h3 id="1-test-sql-injection-sqli-block" class="text-xl md:text-2xl font-semibold text-slate-100 tracking-tight mt-8 mb-3">1. Test SQL Injection (SQLi) Block</h3>
+
+<div class="relative my-8 group rounded-xl overflow-hidden border border-slate-800 bg-slate-950 shadow-2xl">
+  <div class="flex items-center justify-between px-4 py-2 bg-slate-900 border-b border-slate-800 text-xs font-mono text-slate-400">
+    <span class="font-semibold text-slate-300">bash</span>
+    <button onclick="navigator.clipboard.writeText(this.parentElement.nextElementSibling.innerText); this.innerText='Copied!'; setTimeout(()=>this.innerText='Copy', 2000)" class="hover:text-white transition px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs">Copy</button>
+  </div>
+  <pre class="p-4 text-xs font-mono text-slate-200 overflow-x-auto leading-relaxed"><code>curl -i -X POST &quot;http://&lt;YOUR_INGRESS_IP&gt;/api/login&quot; \
+     -d &quot;username=admin&#x27; OR &#x27;1&#x27;=&#x27;1&#x27;--&amp;password=foo&quot;</code></pre>
+</div>
+<p class="text-slate-300 text-base md:text-lg leading-relaxed my-4"><strong class="text-white font-semibold">Expected Response</strong>:</p>
+
+<div class="relative my-8 group rounded-xl overflow-hidden border border-slate-800 bg-slate-950 shadow-2xl">
+  <div class="flex items-center justify-between px-4 py-2 bg-slate-900 border-b border-slate-800 text-xs font-mono text-slate-400">
+    <span class="font-semibold text-slate-300">http</span>
+    <button onclick="navigator.clipboard.writeText(this.parentElement.nextElementSibling.innerText); this.innerText='Copied!'; setTimeout(()=>this.innerText='Copy', 2000)" class="hover:text-white transition px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs">Copy</button>
+  </div>
+  <pre class="p-4 text-xs font-mono text-slate-200 overflow-x-auto leading-relaxed"><code>HTTP/1.1 403 Forbidden
+Content-Type: application/json
+
+{&quot;error&quot;:&quot;Request Blocked by Security Policy&quot;,&quot;incident_id&quot;:&quot;tx-84912&quot;,&quot;rule_id&quot;:942100,&quot;status&quot;:403}</code></pre>
+</div>
+<h3 id="2-test-automated-ip-quarantine-burst" class="text-xl md:text-2xl font-semibold text-slate-100 tracking-tight mt-8 mb-3">2. Test Automated IP Quarantine Burst</h3>
+<p class="text-slate-300 text-base md:text-lg leading-relaxed my-4">Simulate an attacker exceeding the burst threshold:</p>
+
+<div class="relative my-8 group rounded-xl overflow-hidden border border-slate-800 bg-slate-950 shadow-2xl">
+  <div class="flex items-center justify-between px-4 py-2 bg-slate-900 border-b border-slate-800 text-xs font-mono text-slate-400">
+    <span class="font-semibold text-slate-300">bash</span>
+    <button onclick="navigator.clipboard.writeText(this.parentElement.nextElementSibling.innerText); this.innerText='Copied!'; setTimeout(()=>this.innerText='Copy', 2000)" class="hover:text-white transition px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs">Copy</button>
+  </div>
+  <pre class="p-4 text-xs font-mono text-slate-200 overflow-x-auto leading-relaxed"><code>for i in $(seq 1 8); do
+  curl -s -o /dev/null -w &quot;%{http_code}\n&quot; &quot;http://&lt;YOUR_INGRESS_IP&gt;/eval-stdin.php?cmd=id&quot;
+  sleep 1
+done</code></pre>
+</div>
+<p class="text-slate-300 text-base md:text-lg leading-relaxed my-4">Within 60 seconds:</p>
+<li class="ml-6 list-decimal text-slate-300 my-1.5 leading-relaxed text-sm md:text-base"><strong class="text-sky-400 font-bold">1.</strong> OpenSearch indexes the attack events with MaxMind GeoIP telemetry.</li>
+<li class="ml-6 list-decimal text-slate-300 my-1.5 leading-relaxed text-sm md:text-base"><strong class="text-sky-400 font-bold">2.</strong> The <code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">auto_block_waf_ips</code> daemon flags $> 5$ attacks in the 15-minute sliding window.</li>
+<li class="ml-6 list-decimal text-slate-300 my-1.5 leading-relaxed text-sm md:text-base"><strong class="text-sky-400 font-bold">3.</strong> Coraza WAF hot-reloads Rule <code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">100020</code>, adding your IP to the atomic blocklist.</li>
+<li class="ml-6 list-decimal text-slate-300 my-1.5 leading-relaxed text-sm md:text-base"><strong class="text-sky-400 font-bold">4.</strong> Next request from the same IP is blocked at Phase 1 before consuming reverse proxy resources:</li>
+<p class="text-slate-300 text-base md:text-lg leading-relaxed my-4">   ```bash</p>
+<p class="text-slate-300 text-base md:text-lg leading-relaxed my-4">   curl -i "http://<YOUR_INGRESS_IP>/"</p>
+<p class="text-slate-300 text-base md:text-lg leading-relaxed my-4">   # HTTP/1.1 403 Forbidden (Coraza IP Blocklist: Blocked Client IP)</p>
+<p class="text-slate-300 text-base md:text-lg leading-relaxed my-4">   ```</p>
+<hr class="border-slate-800 my-10" />
+<h2 id="12-conclusion-key-takeaways" class="text-2xl md:text-3xl font-bold text-white tracking-tight mt-14 mb-4 pt-8 border-t border-slate-800/80 flex items-center gap-2"><a href="#12-conclusion-key-takeaways" class="text-sky-500 hover:underline">#</a> 12. Conclusion & Key Takeaways</h2>
+<li class="ml-6 list-decimal text-slate-300 my-1.5 leading-relaxed text-sm md:text-base"><strong class="text-sky-400 font-bold">1.</strong> <strong class="text-white font-semibold">Pure Go WAFs Eliminate Legacy Fragility</strong>: Coraza v3 delivers full OWASP Core Rule Set protection without the memory leaks and complex restarts of legacy C/C++ ModSecurity.</li>
+<li class="ml-6 list-decimal text-slate-300 my-1.5 leading-relaxed text-sm md:text-base"><strong class="text-sky-400 font-bold">2.</strong> <strong class="text-white font-semibold">In-Memory Sidecars Protect Node Disks</strong>: Isolating high-volume audit logs to RAM (<code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">tmpfs</code>) with 5 MB self-truncation guarantees that attack storms cannot crash Kubernetes nodes.</li>
+<li class="ml-6 list-decimal text-slate-300 my-1.5 leading-relaxed text-sm md:text-base"><strong class="text-sky-400 font-bold">3.</strong> <strong class="text-white font-semibold">Burst Detectors Restore Alert Reliability</strong>: Triggering notifications only on aggregated attack volume eliminates on-call fatigue while providing rich payload forensics.</li>
+<li class="ml-6 list-decimal text-slate-300 my-1.5 leading-relaxed text-sm md:text-base"><strong class="text-sky-400 font-bold">4.</strong> <strong class="text-white font-semibold">Autonomous Feedback Loops Transform Telemetry into Defense</strong>: Observability must not be passive—linking OpenSearch analytics directly back into Coraza's SecLang compiler creates a self-healing security mesh.</li>
+<hr class="border-slate-800 my-10" />
+<h3 id="repository-reference-code" class="text-xl md:text-2xl font-semibold text-slate-100 tracking-tight mt-8 mb-3">Repository & Reference Code</h3>
+<p class="text-slate-300 text-base md:text-lg leading-relaxed my-4">All manifests, Go source code, and scripts are open-source:</p>
+<p class="text-slate-300 text-base md:text-lg leading-relaxed my-4">👉 <a href="https://github.com/saadrana219/coraza-waf-k8s-defense" target="_blank" rel="noopener noreferrer" class="text-sky-400 hover:text-sky-300 underline underline-offset-2 transition font-medium"><strong class="text-white font-semibold">https://github.com/saadrana219/coraza-waf-k8s-defense</strong></a></p>
+<p class="text-slate-300 text-base md:text-lg leading-relaxed my-4"><em class="italic text-slate-300">Published by the Hypatian Systems LLC Infrastructure & Security Engineering Team.</em></p>
+    </article>
+  </main>
+
+  <!-- Footer -->
+  <footer class="border-t border-slate-800 py-12 bg-slate-950 text-center text-xs text-slate-500">
+    <div class="max-w-4xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-4">
+      <p>© 2026 Hypatian Systems LLC. All rights reserved. Published under MIT License.</p>
+      <div class="flex items-center gap-4">
+        <a href="https://github.com/saadrana219/coraza-waf-k8s-defense" class="hover:text-slate-300 transition">GitHub Repo</a>
+        <a href="#top" class="hover:text-slate-300 transition">Back to Top ↑</a>
+      </div>
+    </div>
+  </footer>
+
+</body>
+</html>
