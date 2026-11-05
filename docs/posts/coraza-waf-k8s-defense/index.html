@@ -825,26 +825,97 @@ done</code></pre>
 
 <hr class="border-slate-800 my-10" />
 
-<h2 id="12-conclusion-key-takeaways" class="text-2xl md:text-3xl font-bold text-white tracking-tight mt-14 mb-4 pt-8 border-t border-slate-800/80 flex items-center gap-2"><a href="#12-conclusion-key-takeaways" class="text-sky-500 hover:underline">#</a> 12. Conclusion & Key Takeaways</h2>
+<h2 id="12-rollout-highlights-findings-pitfalls" class="text-2xl md:text-3xl font-bold text-white tracking-tight mt-14 mb-4 pt-8 border-t border-slate-800/80 flex items-center gap-2"><a href="#12-rollout-highlights-findings-pitfalls" class="text-sky-500 hover:underline">#</a> 12. Rollout Highlights: Operational Findings & Pitfalls</h2>
 
-<ol class="space-y-4 my-6 list-none">
-  <li class="flex items-start gap-3.5 text-slate-300 text-base leading-relaxed">
-    <span class="flex-shrink-0 flex items-center justify-center w-6 h-6 rounded-full bg-sky-950 text-sky-400 border border-sky-800 text-xs font-bold font-mono">1</span>
-    <div><strong class="text-white font-semibold">Pure Go WAFs Eliminate Legacy Fragility</strong>: Coraza v3 delivers full OWASP Core Rule Set protection without the memory leaks and complex restarts of legacy C/C++ ModSecurity.</div>
-  </li>
-  <li class="flex items-start gap-3.5 text-slate-300 text-base leading-relaxed">
-    <span class="flex-shrink-0 flex items-center justify-center w-6 h-6 rounded-full bg-sky-950 text-sky-400 border border-sky-800 text-xs font-bold font-mono">2</span>
-    <div><strong class="text-white font-semibold">In-Memory Sidecars Protect Node Disks</strong>: Isolating high-volume audit logs to RAM (<code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">tmpfs</code>) with 5 MB self-truncation guarantees that attack storms cannot crash Kubernetes nodes.</div>
-  </li>
-  <li class="flex items-start gap-3.5 text-slate-300 text-base leading-relaxed">
-    <span class="flex-shrink-0 flex items-center justify-center w-6 h-6 rounded-full bg-sky-950 text-sky-400 border border-sky-800 text-xs font-bold font-mono">3</span>
-    <div><strong class="text-white font-semibold">Burst Detectors Restore Alert Reliability</strong>: Triggering notifications only on aggregated attack volume eliminates on-call fatigue while providing rich payload forensics.</div>
-  </li>
-  <li class="flex items-start gap-3.5 text-slate-300 text-base leading-relaxed">
-    <span class="flex-shrink-0 flex items-center justify-center w-6 h-6 rounded-full bg-sky-950 text-sky-400 border border-sky-800 text-xs font-bold font-mono">4</span>
-    <div><strong class="text-white font-semibold">Autonomous Feedback Loops Transform Telemetry into Defense</strong>: Observability must not be passive—linking OpenSearch analytics directly back into Coraza's SecLang compiler creates a self-healing security mesh.</div>
-  </li>
-</ol>
+<p class="text-slate-300 text-base md:text-lg leading-relaxed my-4">Deploying an autonomous WAF and telemetry pipeline into an active Kubernetes cluster reveals nuances that synthetic staging benchmarks never catch. Below are the concrete operational findings observed throughout this rollout, accompanied by critical pitfalls to engineer against.</p>
+
+<h3 id="operational-findings-observed-in-production" class="text-xl md:text-2xl font-semibold text-slate-100 tracking-tight mt-8 mb-4 flex items-center gap-2">
+  <span class="text-sky-400">⚡</span> Operational Findings Observed in Production
+</h3>
+
+<div class="space-y-4 my-6">
+  <div class="p-4 rounded-xl border border-slate-800 bg-slate-900/60">
+    <div class="flex items-center gap-2 font-mono text-sm font-semibold text-white mb-1.5">
+      <span class="w-2 h-2 rounded-full bg-sky-400"></span>
+      1. Client IP Preservation &amp; Ingress Asymmetry
+    </div>
+    <p class="text-slate-300 text-sm leading-relaxed">
+      Setting <code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">externalTrafficPolicy: Local</code> on the MetalLB LoadBalancer service is mandatory. If left at the Kubernetes default (<code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">Cluster</code>), internal SNAT rewrites incoming client IPs to node interface addresses (<code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">10.x.x.x</code> or LAN IPs), making genuine attacker attribution impossible and risking automated bans against cluster nodes.
+    </p>
+  </div>
+
+  <div class="p-4 rounded-xl border border-slate-800 bg-slate-900/60">
+    <div class="flex items-center gap-2 font-mono text-sm font-semibold text-white mb-1.5">
+      <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
+      2. Memory &amp; GC Runtime Profile under High-Rate Attack
+    </div>
+    <p class="text-slate-300 text-sm leading-relaxed">
+      The pure Go Coraza v3 proxy runs at ~45MB RSS idle, scaling smoothly to ~110MB under full scanner burst loads (120+ req/s). Go's garbage collector handled high transaction churn without heap fragmentation. However, enforcing <code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">SecRequestBodyLimit 13107200</code> (12.5MB) and an in-memory threshold of 128KB was essential to stop attackers from exhausting RAM with streaming multipart uploads.
+    </p>
+  </div>
+
+  <div class="p-4 rounded-xl border border-slate-800 bg-slate-900/60">
+    <div class="flex items-center gap-2 font-mono text-sm font-semibold text-white mb-1.5">
+      <span class="w-2 h-2 rounded-full bg-cyan-400"></span>
+      3. In-Memory Sidecar Buffer vs. Log Spike Dynamics
+    </div>
+    <p class="text-slate-300 text-sm leading-relaxed">
+      During aggressive directory fuzzing passes (<code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">masscan</code>, <code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">nuclei</code>), Coraza generated up to 35 MB/minute of structured audit JSON. A 64Mi <code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">emptyDir: medium: Memory</code> safely decoupled logging I/O from physical SSDs. Paired with our 5-second rotation daemon truncating active files at 5MB, node disk write wear remained at zero.
+    </p>
+  </div>
+
+  <div class="p-4 rounded-xl border border-slate-800 bg-slate-900/60">
+    <div class="flex items-center gap-2 font-mono text-sm font-semibold text-white mb-1.5">
+      <span class="w-2 h-2 rounded-full bg-indigo-400"></span>
+      4. SecLang Paranoia Level 1 vs. Modern API Payload Tuning
+    </div>
+    <p class="text-slate-300 text-sm leading-relaxed">
+      OWASP CRS v4.3 Paranoia Level 1 produced zero false positives across standard web UI workflows. However, REST APIs receiving serialized JSON objects with embedded SQL keywords (e.g. <code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">order_by</code> or base64 JWT payloads) required targeted Phase 1 SecRule exclusions (<code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">ctl:ruleRemoveById</code>) on specific API endpoints before Phase 2 inspection.
+    </p>
+  </div>
+</div>
+
+<h3 id="critical-pitfalls-to-engineer-against" class="text-xl md:text-2xl font-semibold text-slate-100 tracking-tight mt-10 mb-4 flex items-center gap-2">
+  <span class="text-amber-400">⚠️</span> Critical Pitfalls to Engineer Against
+</h3>
+
+<div class="space-y-4 my-6">
+  <div class="p-4 rounded-xl border border-rose-900/40 bg-rose-950/10">
+    <div class="flex items-center gap-2 font-mono text-sm font-semibold text-rose-300 mb-1.5">
+      <span>🚨</span> Pitfall 1: Subnet Safelist Flaws Causing Self-Inflicted Outages
+    </div>
+    <p class="text-slate-300 text-sm leading-relaxed">
+      If the autonomous quarantine script queries OpenSearch and updates the blocklist without an airtight private subnet whitelist, internal service-to-service errors or Kubernetes liveness probe spikes will trigger an automatic IP ban against cluster gateways or internal pods. <strong class="text-white">Rule:</strong> Hardcode RFC1918 (<code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">10.0.0.0/8</code>, <code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">172.16.0.0/12</code>, <code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">192.168.0.0/16</code>), pod CIDRs, and node subnets directly into the quarantine evaluator with explicit unit tests before automating blocking.
+    </p>
+  </div>
+
+  <div class="p-4 rounded-xl border border-amber-900/40 bg-amber-950/10">
+    <div class="flex items-center gap-2 font-mono text-sm font-semibold text-amber-300 mb-1.5">
+      <span>⚠️</span> Pitfall 2: Fluent Bit In-Memory Buffer Starvation Under Elastic Backpressure
+    </div>
+    <p class="text-slate-300 text-sm leading-relaxed">
+      When OpenSearch encounters disk high watermarks (85%+) or JVM heap pauses, ingestion latency climbs. If Fluent Bit exhausts its in-memory buffer limit (<code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">Mem_Buf_Limit 15MB</code>), it temporarily pauses reading. Meanwhile, the diskless log rotator continues truncating the audit file to protect RAM, leading to silently dropped security audit events. <strong class="text-white">Rule:</strong> Configure Prometheus alert rules on <code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">fluentbit_output_retries_total</code> to catch shipper backpressure early.
+    </p>
+  </div>
+
+  <div class="p-4 rounded-xl border border-amber-900/40 bg-amber-950/10">
+    <div class="flex items-center gap-2 font-mono text-sm font-semibold text-amber-300 mb-1.5">
+      <span>⚠️</span> Pitfall 3: Atomic Pointer Swap vs. In-Flight Transaction Leaks
+    </div>
+    <p class="text-slate-300 text-sm leading-relaxed">
+      While Go's <code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">atomic.Value</code> allows instant, zero-downtime hot-reloading for incoming requests, in-flight HTTP transactions that began evaluating prior to the swap will continue running against the prior rule engine pointer. Never mutate SecLang rule lists or map entries in-place; always compile an entirely new standalone WAF instance and atomically swap the pointer.
+    </p>
+  </div>
+
+  <div class="p-4 rounded-xl border border-amber-900/40 bg-amber-950/10">
+    <div class="flex items-center gap-2 font-mono text-sm font-semibold text-amber-300 mb-1.5">
+      <span>⚠️</span> Pitfall 4: Alert Rate Limiting &amp; Email Quota Depletion
+    </div>
+    <p class="text-slate-300 text-sm leading-relaxed">
+      Configuring alert monitors on single anomalous hits or narrow 60-second windows without grouping causes email alert floods during routine internet vulnerability sweeps (e.g. Shodan, Shadowserver), quickly exhausting AWS SES sandbox quotas (200 emails/day) and destroying operational focus. <strong class="text-white">Rule:</strong> Base alert triggers strictly on aggregated multi-event thresholds (e.g., &gt;5 discrete attack events across a 15-minute sliding window) grouped by client IP.
+    </p>
+  </div>
+</div>
 <hr class="border-slate-800 my-10" />
 <h3 id="repository-reference-code" class="text-xl md:text-2xl font-semibold text-slate-100 tracking-tight mt-8 mb-3">Repository & Reference Code</h3>
 <p class="text-slate-300 text-base md:text-lg leading-relaxed my-4">All manifests, Go source code, and scripts are open-source:</p>
