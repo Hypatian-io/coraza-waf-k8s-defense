@@ -459,10 +459,11 @@ Within 60 seconds:
 2. The `auto_block_waf_ips` daemon flags $> 5$ attacks in the 15-minute sliding window.
 3. Coraza WAF hot-reloads Rule `100020`, adding your IP to the atomic blocklist.
 4. Next request from the same IP is blocked at Phase 1 before consuming reverse proxy resources:
-   ```bash
-   curl -i "http://<YOUR_INGRESS_IP>/"
-   # HTTP/1.1 403 Forbidden (Coraza IP Blocklist: Blocked Client IP)
-   ```
+
+```bash
+curl -i "http://<YOUR_INGRESS_IP>/"
+# HTTP/1.1 403 Forbidden (Coraza IP Blocklist: Blocked Client IP)
+```
 
 ---
 
