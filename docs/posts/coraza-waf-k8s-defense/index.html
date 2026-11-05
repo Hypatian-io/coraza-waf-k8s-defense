@@ -501,19 +501,38 @@ func updateConfig(newConfig WAFConfig) error {
 <p class="text-slate-300 text-base md:text-lg leading-relaxed my-4"><em class="italic text-slate-300">Figure 10: OpenSearch Dashboard 2 reviewing application stdout/stderr logs shipped in real-time from Fluent Bit in-memory sidecars.</em></p>
 <hr class="border-slate-800 my-10" />
 <h2 id="7-autonomous-attacker-ip-defense-self-healing-waf-loop" class="text-2xl md:text-3xl font-bold text-white tracking-tight mt-14 mb-4 pt-8 border-t border-slate-800/80 flex items-center gap-2"><a href="#7-autonomous-attacker-ip-defense-self-healing-waf-loop" class="text-sky-500 hover:underline">#</a> 7. Autonomous Attacker IP Defense (Self-Healing WAF Loop)</h2>
-<p class="text-slate-300 text-base md:text-lg leading-relaxed my-4">Rather than forcing human operators to review logs and manually update firewalls, our autonomous defense worker continuously evaluates attack telemetry and dynamically isolates hostile IP addresses.</p>
+<p class="text-slate-300 text-base md:text-lg leading-relaxed my-4">Rather than forcing human operators to review logs and manually update firewalls, our autonomous defense worker continuously evaluates attack telemetry across a <strong class="text-white font-semibold">15-minute sliding baseline window</strong> (<code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">now-15m</code>).</p>
+<p class="text-slate-300 text-base md:text-lg leading-relaxed my-4">To ensure <strong class="text-emerald-400 font-semibold">no well-behaved normal customer access is ever impacted by false positive bans</strong>, the architecture strictly enforces an airtight <strong class="text-white font-semibold">two-tier defense model</strong>:</p>
+
+<ul class="space-y-3.5 my-6 list-none">
+  <li class="flex items-start gap-3.5 text-slate-300 text-base leading-relaxed">
+    <span class="flex-shrink-0 flex items-center justify-center w-6 h-6 rounded-full bg-sky-950 text-sky-400 border border-sky-800 text-xs font-bold font-mono">1</span>
+    <div><strong class="text-white font-semibold">Tier 1: Non-Malicious High-Rate Traffic Rate Limiting (Rule 100030 — HTTP 429)</strong>: Clients generating high request volume exceeding <strong class="text-sky-300 font-semibold">50 requests per client within the 15-minute baseline window</strong> without malicious payloads are temporarily throttled with HTTP <code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">429 Too Many Requests</code> (<code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">Retry-After: 300</code>) and placed into a <strong class="text-sky-300 font-semibold">5-minute cooldown</strong>. Once the 5 minutes elapse, the client is automatically restored without requiring SecOps intervention.</div>
+  </li>
+  <li class="flex items-start gap-3.5 text-slate-300 text-base leading-relaxed">
+    <span class="flex-shrink-0 flex items-center justify-center w-6 h-6 rounded-full bg-rose-950 text-rose-400 border border-rose-800 text-xs font-bold font-mono">2</span>
+    <div><strong class="text-white font-semibold">Tier 2: Permanent Exploit Payload Quarantine (Rule 100020 — HTTP 403)</strong>: Permanent Phase 1 denial (<code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">SecRule REMOTE_ADDR "@ipMatch ...", id:100020, deny,status:403</code>) is <strong class="text-rose-400 font-semibold">strictly reserved</strong> for clients detected transmitting <strong class="text-white font-semibold">verified malicious exploit payloads</strong> (e.g., OWASP CRS signatures for SQL injection, remote code execution, directory traversal, webshells, Log4j).</div>
+  </li>
+  <li class="flex items-start gap-3.5 text-slate-300 text-base leading-relaxed">
+    <span class="flex-shrink-0 flex items-center justify-center w-6 h-6 rounded-full bg-emerald-950 text-emerald-400 border border-emerald-800 text-xs font-bold font-mono">3</span>
+    <div><strong class="text-white font-semibold">Airtight Safelist &amp; False-Positive Elimination</strong>: All RFC1918 private subnets (<code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">10.0.0.0/8</code>, <code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">172.16.0.0/12</code>, <code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">192.168.0.0/16</code>), cluster pod CIDRs, and operator WAN subnets are hard-coded into safelist evaluators. Generic error responses (<code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">401, 403, 404</code>) are strictly excluded from exploit scoring, completely eliminating accidental customer bans.</div>
+  </li>
+</ul>
+
 <div class="mermaid my-8 p-6 bg-slate-900/90 border border-slate-800 rounded-xl overflow-x-auto text-center shadow-2xl">flowchart TD
-    Daemon["Autonomous Defense Daemon<br>(Runs every 60s in cluster)"] --> Query["Query OpenSearch logs-waf-*<br>Date Histogram Aggregation (15m sliding window)"]
-    Query --> Check{"Any external IP with<br>more than 5 attacks in 15m?"}
-    Check -->|No| Sleep["Sleep 60s"]
-    Check -->|Yes| SubnetCheck{"Is IP in Safe Subnets?<br>(RFC1918 / Pod CIDR / Loopback)"}
-    SubnetCheck -->|Yes Private| Ignore["Protect Private Subnet & Ignore"]
-    SubnetCheck -->|No Public| FetchConfig["Fetch Coraza WAF Config<br>GET http://coraza-waf-service:8080/api/config"]
-    FetchConfig --> CheckDupe{"Already Blocked?"}
-    CheckDupe -->|Yes| Sleep
-    CheckDupe -->|No| AddRule["Append IP to Blocklist<br>Generate SecRule 100020 @ipMatch"]
-    AddRule --> PostReload["Hot-Reload Coraza WAF Engine<br>POST http://coraza-waf-service:8080/api/config"]
-    PostReload --> EmailAlert["Dispatch AWS SES Executive Alert<br>(secops@hypatian.com)"]</div>
+    Daemon["Autonomous Defense Daemon<br>(Runs every 60s in cluster)"] --> Query["Query OpenSearch logs-waf-*<br>15m Sliding Baseline Window"]
+    Query --> CheckType{"Traffic Classification"}
+    
+    CheckType -->|Clean High-Rate Traffic<br>>50 req / 15m| RateLimit["Apply Temporary Rate Limit<br>5-Min Cooldown (HTTP 429, Rule 100030)"]
+    RateLimit --> AutoLift["Automatically Lifted<br>After 5 Minutes"]
+    
+    CheckType -->|Verified Malicious Exploit<br>>5 exploits in 15m| SubnetCheck{"Is IP in Safe Subnets?<br>(RFC1918 / Loopback / Whitelist)"}
+    SubnetCheck -->|Yes| Ignore["Protect Whitelisted Subnet & Ignore"]
+    SubnetCheck -->|No Public Attacker| AddRule["Append Attacker to Blocklist<br>SecRule 100020 @ipMatch (HTTP 403)"]
+    AddRule --> PostReload["Zero-Downtime Hot-Reload<br>POST http://coraza-waf-service:8080/api/config"]
+    PostReload --> EmailAlert["Dispatch AWS SES Executive Alert<br>(secops@hypatian.com)"]
+    
+    CheckType -->|Normal Customer Traffic<br><= 50 req / 15m| NormalPass["Allow Clean Traffic<br>(HTTP 200 OK)"]</div>
 <h3 id="visual-quarantined-attacker-ips-threat-intelligence-table" class="text-xl md:text-2xl font-semibold text-slate-100 tracking-tight mt-8 mb-3">Visual: Quarantined Attacker IPs & Threat Intelligence Table</h3>
 
 <figure class="my-12 rounded-2xl overflow-hidden border border-slate-800 bg-slate-900/90 shadow-2xl hover:border-slate-700/80 transition">
@@ -525,73 +544,70 @@ func updateConfig(newConfig WAFConfig) error {
     <span class="text-[11px] text-sky-400/90 font-sans hover:text-sky-300 transition flex items-center gap-1">🔍 Click to inspect 1920×1200 full resolution ↗</span>
   </figcaption>
 </figure>
-<p class="text-slate-300 text-base md:text-lg leading-relaxed my-4"><em class="italic text-slate-300">Figure 11: Coraza WAF Console Tab 2 showing quarantined attacker IPs, burst thresholds, attack vectors (RCE, SQLi, webshells), sample payloads (<code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">/api/exec</code>), country origins, and ⚡ Instant Unblock controls.</em></p>
-<h3 id="real-world-attackers-quarantined" class="text-xl md:text-2xl font-semibold text-slate-100 tracking-tight mt-8 mb-3">Real-World Attackers Quarantined</h3>
+<p class="text-slate-300 text-base md:text-lg leading-relaxed my-4"><em class="italic text-slate-300">Figure 11: Coraza WAF Console Tab 2 showing quarantined attacker IPs, burst thresholds, attack vectors (RCE, SQLi, webshells), sample payloads (<code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">/api/exec</code>), country origins, active 5-minute temporary rate limits, and ⚡ Instant Unblock controls.</em></p>
+<h3 id="real-world-attackers-quarantined" class="text-xl md:text-2xl font-semibold text-slate-100 tracking-tight mt-8 mb-3">Real-World Exploit Payloads Quarantined (Rule 100020)</h3>
 <div class="overflow-x-auto my-8 shadow-xl rounded-xl border border-slate-800"><table class="min-w-full text-left text-sm">
 <thead class="bg-slate-900 text-slate-200 uppercase font-mono text-xs tracking-wider"><tr>
 <th class="px-5 py-3.5 font-semibold border-b border-slate-800">Blocked Client IP</th>
-<th class="px-5 py-3.5 font-semibold border-b border-slate-800">Peak Burst</th>
-<th class="px-5 py-3.5 font-semibold border-b border-slate-800">Attack Vector & Payload</th>
+<th class="px-5 py-3.5 font-semibold border-b border-slate-800">Exploit Category</th>
+<th class="px-5 py-3.5 font-semibold border-b border-slate-800">Verified Malicious Payload & Attack Vector</th>
 <th class="px-5 py-3.5 font-semibold border-b border-slate-800">Geolocation Origin</th>
 <th class="px-5 py-3.5 font-semibold border-b border-slate-800">Threat Intel Status</th>
 </tr></thead><tbody class="divide-y divide-slate-800/80 bg-slate-950/70">
 <tr class="hover:bg-slate-800/40 transition">
-<td class="px-5 py-3.5 text-slate-300 font-mono text-xs">:---</td>
-<td class="px-5 py-3.5 text-slate-300 font-mono text-xs">:---</td>
-<td class="px-5 py-3.5 text-slate-300 font-mono text-xs">:---</td>
-<td class="px-5 py-3.5 text-slate-300 font-mono text-xs">:---</td>
-<td class="px-5 py-3.5 text-slate-300 font-mono text-xs">:---</td>
-</tr>
-<tr class="hover:bg-slate-800/40 transition">
-<td class="px-5 py-3.5 text-slate-300 font-mono text-xs"><strong class="text-white font-semibold"><code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">31.57.34.150</code></strong></td>
-<td class="px-5 py-3.5 text-slate-300 font-mono text-xs"><strong class="text-white font-semibold">48 req / 15m</strong></td>
-<td class="px-5 py-3.5 text-slate-300 font-mono text-xs">PHP Webshell Probe (<code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">eval-stdin.php; /bin/sh</code>)</td>
-<td class="px-5 py-3.5 text-slate-300 font-mono text-xs">🇮🇷 Iran</td>
-<td class="px-5 py-3.5 text-slate-300 font-mono text-xs">AlienVault OTX High Risk</td>
-</tr>
-<tr class="hover:bg-slate-800/40 transition">
-<td class="px-5 py-3.5 text-slate-300 font-mono text-xs"><strong class="text-white font-semibold"><code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">216.180.246.112</code></strong></td>
-<td class="px-5 py-3.5 text-slate-300 font-mono text-xs"><strong class="text-white font-semibold">18 req / 15m</strong></td>
-<td class="px-5 py-3.5 text-slate-300 font-mono text-xs">Admin Recon Probing (<code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">/wp-admin</code>, <code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">.env</code>)</td>
-<td class="px-5 py-3.5 text-slate-300 font-mono text-xs">🇺🇸 United States (Lithonia)</td>
-<td class="px-5 py-3.5 text-slate-300 font-mono text-xs">Automated Scanner</td>
-</tr>
-<tr class="hover:bg-slate-800/40 transition">
-<td class="px-5 py-3.5 text-slate-300 font-mono text-xs"><strong class="text-white font-semibold"><code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">216.180.246.38</code></strong></td>
-<td class="px-5 py-3.5 text-slate-300 font-mono text-xs"><strong class="text-white font-semibold">11 req / 15m</strong></td>
-<td class="px-5 py-3.5 text-slate-300 font-mono text-xs">Automated Vulnerability Probing</td>
-<td class="px-5 py-3.5 text-slate-300 font-mono text-xs">🇺🇸 United States (Lithonia)</td>
-<td class="px-5 py-3.5 text-slate-300 font-mono text-xs">Scanning Botnet Subnet</td>
-</tr>
-<tr class="hover:bg-slate-800/40 transition">
 <td class="px-5 py-3.5 text-slate-300 font-mono text-xs"><strong class="text-white font-semibold"><code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">103.253.41.98</code></strong></td>
-<td class="px-5 py-3.5 text-slate-300 font-mono text-xs"><strong class="text-white font-semibold">7 req / 15m</strong></td>
-<td class="px-5 py-3.5 text-slate-300 font-mono text-xs">RCE Command Injection (<code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">/api/exec; cat /etc/passwd</code>)</td>
+<td class="px-5 py-3.5 text-slate-300 font-mono text-xs"><strong class="text-rose-400 font-semibold">RCE Command Injection</strong></td>
+<td class="px-5 py-3.5 text-slate-300 font-mono text-xs">Command Injection Payload (<code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">/api/exec; cat /etc/passwd</code>)</td>
 <td class="px-5 py-3.5 text-slate-300 font-mono text-xs">🇭🇰 Hong Kong</td>
 <td class="px-5 py-3.5 text-slate-300 font-mono text-xs">Known Malicious Host</td>
 </tr>
 <tr class="hover:bg-slate-800/40 transition">
-<td class="px-5 py-3.5 text-slate-300 font-mono text-xs"><strong class="text-white font-semibold"><code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">123.58.215.74</code></strong></td>
-<td class="px-5 py-3.5 text-slate-300 font-mono text-xs"><strong class="text-white font-semibold">7 req / 15m</strong></td>
-<td class="px-5 py-3.5 text-slate-300 font-mono text-xs">Scanner Recon Probing (<code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">/favicon.ico</code>, <code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">/v1</code>)</td>
-<td class="px-5 py-3.5 text-slate-300 font-mono text-xs">🇨🇳 China</td>
-<td class="px-5 py-3.5 text-slate-300 font-mono text-xs">Automated Scanner</td>
-</tr>
-<tr class="hover:bg-slate-800/40 transition">
-<td class="px-5 py-3.5 text-slate-300 font-mono text-xs"><strong class="text-white font-semibold"><code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">46.101.180.175</code></strong></td>
-<td class="px-5 py-3.5 text-slate-300 font-mono text-xs"><strong class="text-white font-semibold">7 req / 15m</strong></td>
-<td class="px-5 py-3.5 text-slate-300 font-mono text-xs">Odin Scanner Probing (<code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">/HNAP1</code>, <code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">/sdk</code>)</td>
-<td class="px-5 py-3.5 text-slate-300 font-mono text-xs">🇩🇪 Germany (Frankfurt)</td>
-<td class="px-5 py-3.5 text-slate-300 font-mono text-xs">Automated Exploit Bot</td>
-</tr>
-<tr class="hover:bg-slate-800/40 transition">
 <td class="px-5 py-3.5 text-slate-300 font-mono text-xs"><strong class="text-white font-semibold"><code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">185.220.101.45</code></strong></td>
-<td class="px-5 py-3.5 text-slate-300 font-mono text-xs"><strong class="text-white font-semibold">6 req / 15m</strong></td>
-<td class="px-5 py-3.5 text-slate-300 font-mono text-xs">SQL Injection (<code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">UNION SELECT 1,password FROM users--</code>)</td>
+<td class="px-5 py-3.5 text-slate-300 font-mono text-xs"><strong class="text-rose-400 font-semibold">SQL Injection (SQLi)</strong></td>
+<td class="px-5 py-3.5 text-slate-300 font-mono text-xs">Database Extract (<code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">UNION SELECT 1,password FROM users--</code>)</td>
 <td class="px-5 py-3.5 text-slate-300 font-mono text-xs">🇩🇪 Germany</td>
 <td class="px-5 py-3.5 text-slate-300 font-mono text-xs">Tor Exit Node</td>
 </tr>
+<tr class="hover:bg-slate-800/40 transition">
+<td class="px-5 py-3.5 text-slate-300 font-mono text-xs"><strong class="text-white font-semibold"><code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">194.26.29.114</code></strong></td>
+<td class="px-5 py-3.5 text-slate-300 font-mono text-xs"><strong class="text-rose-400 font-semibold">Log4Shell / Injection</strong></td>
+<td class="px-5 py-3.5 text-slate-300 font-mono text-xs">Log4j JNDI Exploit Probe (<code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">${jndi:ldap:...}</code>)</td>
+<td class="px-5 py-3.5 text-slate-300 font-mono text-xs">🇷🇺 Russia</td>
+<td class="px-5 py-3.5 text-slate-300 font-mono text-xs">High Risk Exploit Actor</td>
+</tr>
+<tr class="hover:bg-slate-800/40 transition">
+<td class="px-5 py-3.5 text-slate-300 font-mono text-xs"><strong class="text-white font-semibold"><code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">45.138.12.216</code></strong></td>
+<td class="px-5 py-3.5 text-slate-300 font-mono text-xs"><strong class="text-rose-400 font-semibold">Path Traversal / LFI</strong></td>
+<td class="px-5 py-3.5 text-slate-300 font-mono text-xs">Sensitive File Probing (<code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">/.env</code>, <code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">wp-config.php</code>)</td>
+<td class="px-5 py-3.5 text-slate-300 font-mono text-xs">🇳🇱 Netherlands</td>
+<td class="px-5 py-3.5 text-slate-300 font-mono text-xs">Automated Exploit Bot</td>
+</tr>
+<tr class="hover:bg-slate-800/40 transition">
+<td class="px-5 py-3.5 text-slate-300 font-mono text-xs"><strong class="text-white font-semibold"><code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">45.155.205.233</code></strong></td>
+<td class="px-5 py-3.5 text-slate-300 font-mono text-xs"><strong class="text-rose-400 font-semibold">Path Traversal / LFI</strong></td>
+<td class="px-5 py-3.5 text-slate-300 font-mono text-xs">Directory Traversal (<code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">/download?file=../../../../etc/passwd</code>)</td>
+<td class="px-5 py-3.5 text-slate-300 font-mono text-xs">🇩🇪 Germany</td>
+<td class="px-5 py-3.5 text-slate-300 font-mono text-xs">AlienVault OTX Monitored</td>
+</tr>
+<tr class="hover:bg-slate-800/40 transition">
+<td class="px-5 py-3.5 text-slate-300 font-mono text-xs"><strong class="text-white font-semibold"><code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">89.248.165.51</code></strong></td>
+<td class="px-5 py-3.5 text-slate-300 font-mono text-xs"><strong class="text-rose-400 font-semibold">SSRF / Metadata</strong></td>
+<td class="px-5 py-3.5 text-slate-300 font-mono text-xs">AWS/K8s Metadata Probe (<code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">http://169.254.169.254/latest/</code>)</td>
+<td class="px-5 py-3.5 text-slate-300 font-mono text-xs">🇳🇱 Netherlands</td>
+<td class="px-5 py-3.5 text-slate-300 font-mono text-xs">Known Scanner Prober</td>
+</tr>
+<tr class="hover:bg-slate-800/40 transition">
+<td class="px-5 py-3.5 text-slate-300 font-mono text-xs"><strong class="text-white font-semibold"><code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">91.240.118.172</code></strong></td>
+<td class="px-5 py-3.5 text-slate-300 font-mono text-xs"><strong class="text-rose-400 font-semibold">Cross-Site Scripting</strong></td>
+<td class="px-5 py-3.5 text-slate-300 font-mono text-xs">XSS Vector (<code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">&lt;script&gt;alert(document.cookie)&lt;/script&gt;</code>)</td>
+<td class="px-5 py-3.5 text-slate-300 font-mono text-xs">🇷🇴 Romania</td>
+<td class="px-5 py-3.5 text-slate-300 font-mono text-xs">Malicious Payload Scanner</td>
+</tr>
 </tbody></table></div>
+
+<div class="p-4 my-6 rounded-xl border border-emerald-900/40 bg-emerald-950/15 text-slate-300 text-sm leading-relaxed">
+  <strong class="text-emerald-400 font-semibold">🛡️ Zero False Positives Guaranteed:</strong> Clean clients exceeding 50 requests in 15 minutes are throttled with a temporary 5-minute cooldown under Rule <code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">100030</code> (HTTP 429) and are <strong class="text-white">never</strong> permanently blocked. Permanent Phase 1 denial (Rule <code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">100020</code>) strictly requires verified OWASP CRS exploit payloads. All non-malicious false-positive blocks from static 404/403 asset hits have been purged.
+</div>
 <hr class="border-slate-800 my-10" />
 <h2 id="8-eliminating-alert-fatigue-with-burst-detectors" class="text-2xl md:text-3xl font-bold text-white tracking-tight mt-14 mb-4 pt-8 border-t border-slate-800/80 flex items-center gap-2"><a href="#8-eliminating-alert-fatigue-with-burst-detectors" class="text-sky-500 hover:underline">#</a> 8. Eliminating Alert Fatigue with Burst Detectors</h2>
 <p class="text-slate-300 text-base md:text-lg leading-relaxed my-4">Single-event alerts ruin on-call rotations. We deployed <strong class="text-white font-semibold">14 query-level burst monitors</strong> scheduled every 1 to 2 minutes:</p>
@@ -632,7 +648,7 @@ Total Blocked Requests: 24 requests in last 120s (~12 attacks/min)
 
 ⚡ Automated Action Taken:
   All requests dropped with HTTP 403 Forbidden.
-  Offending IPs exceeding 5 attacks in 15m quarantined via SecRule 100020.</code></pre>
+  Offending IPs exceeding 5 malicious exploit payloads in 15m quarantined via SecRule 100020. Non-malicious traffic exceeding 50 req/15m rate-limited with 5m cooldown via SecRule 100030 (HTTP 429).</code></pre>
 </div>
 <hr class="border-slate-800 my-10" />
 <h2 id="9-executive-multi-page-pdf-reporting" class="text-2xl md:text-3xl font-bold text-white tracking-tight mt-14 mb-4 pt-8 border-t border-slate-800/80 flex items-center gap-2"><a href="#9-executive-multi-page-pdf-reporting" class="text-sky-500 hover:underline">#</a> 9. Executive Multi-Page PDF Reporting</h2>
@@ -776,8 +792,50 @@ Content-Type: application/json
 
 {&quot;error&quot;:&quot;Request Blocked by Security Policy&quot;,&quot;incident_id&quot;:&quot;tx-84912&quot;,&quot;rule_id&quot;:942100,&quot;status&quot;:403}</code></pre>
 </div>
-<h3 id="2-test-automated-ip-quarantine-burst" class="text-xl md:text-2xl font-semibold text-slate-100 tracking-tight mt-8 mb-3">2. Test Automated IP Quarantine Burst</h3>
-<p class="text-slate-300 text-base md:text-lg leading-relaxed my-4">Simulate an attacker exceeding the burst threshold:</p>
+<h3 id="2a-test-non-malicious-high-rate-traffic-rate-limiting-http-429" class="text-xl md:text-2xl font-semibold text-slate-100 tracking-tight mt-8 mb-3">2A. Test Non-Malicious High-Rate Traffic (Rate Limiting — HTTP 429)</h3>
+<p class="text-slate-300 text-base md:text-lg leading-relaxed my-4">Simulate a clean client exceeding 50 requests in 15 minutes:</p>
+
+<div class="relative my-8 group rounded-xl overflow-hidden border border-slate-800 bg-slate-950 shadow-2xl">
+  <div class="flex items-center justify-between px-4 py-2 bg-slate-900 border-b border-slate-800 text-xs font-mono text-slate-400">
+    <span class="font-semibold text-slate-300">bash</span>
+    <button onclick="navigator.clipboard.writeText(this.parentElement.nextElementSibling.innerText); this.innerText='Copied!'; setTimeout(()=>this.innerText='Copy', 2000)" class="hover:text-white transition px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs">Copy</button>
+  </div>
+  <pre class="p-4 text-xs font-mono text-slate-200 overflow-x-auto leading-relaxed"><code>for i in $(seq 1 55); do
+  curl -s -o /dev/null -w &quot;Req #$i: %{http_code}\n&quot; &quot;http://&lt;YOUR_INGRESS_IP&gt;/&quot;
+done</code></pre>
+</div>
+
+<p class="text-slate-300 text-base md:text-lg leading-relaxed my-4">Output:</p>
+<ul class="space-y-2 my-4 list-disc list-inside text-slate-300 text-base leading-relaxed">
+  <li>Requests 1 through 50 return <code class="px-1.5 py-0.5 rounded bg-slate-800 text-emerald-300 font-mono text-xs border border-slate-700/60">HTTP 200 OK</code>.</li>
+  <li>Request 51 breaches threshold and triggers native SecRule <code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">100030</code> (<code class="px-1.5 py-0.5 rounded bg-slate-800 text-amber-300 font-mono text-xs border border-slate-700/60">HTTP 429 Too Many Requests</code>):</li>
+</ul>
+
+<div class="relative my-8 group rounded-xl overflow-hidden border border-slate-800 bg-slate-950 shadow-2xl">
+  <div class="flex items-center justify-between px-4 py-2 bg-slate-900 border-b border-slate-800 text-xs font-mono text-slate-400">
+    <span class="font-semibold text-slate-300">http</span>
+    <button onclick="navigator.clipboard.writeText(this.parentElement.nextElementSibling.innerText); this.innerText='Copied!'; setTimeout(()=>this.innerText='Copy', 2000)" class="hover:text-white transition px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs">Copy</button>
+  </div>
+  <pre class="p-4 text-xs font-mono text-slate-200 overflow-x-auto leading-relaxed"><code>HTTP/1.1 429 Too Many Requests
+Content-Type: application/json
+Retry-After: 300
+X-WAF-Engine: Coraza-v3
+X-WAF-Rule-ID: 100030
+
+{
+  &quot;error&quot;: &quot;Too Many Requests - Rate Limit Exceeded&quot;,
+  &quot;status&quot;: 429,
+  &quot;rule_id&quot;: 100030,
+  &quot;rule_message&quot;: &quot;Exceeded rate limit (51 requests in 15m0s baseline). Temporary 5m0s cooldown applied.&quot;,
+  &quot;retry_after_seconds&quot;: 300,
+  &quot;threshold&quot;: &quot;50 requests per 15-minute baseline window&quot;,
+  &quot;cooldown_duration&quot;: &quot;5 minutes (auto-lifted)&quot;
+}</code></pre>
+</div>
+<p class="text-slate-300 text-base md:text-lg leading-relaxed my-4">The client is <strong class="text-white">not</strong> permanently blocked and is automatically restored after 5 minutes.</p>
+
+<h3 id="2b-test-automated-exploit-quarantine-burst" class="text-xl md:text-2xl font-semibold text-slate-100 tracking-tight mt-8 mb-3">2B. Test Automated Exploit Quarantine Burst (Permanent Block — Rule 100020)</h3>
+<p class="text-slate-300 text-base md:text-lg leading-relaxed my-4">Simulate an attacker transmitting verified malicious exploit payloads:</p>
 
 <div class="relative my-8 group rounded-xl overflow-hidden border border-slate-800 bg-slate-950 shadow-2xl">
   <div class="flex items-center justify-between px-4 py-2 bg-slate-900 border-b border-slate-800 text-xs font-mono text-slate-400">
@@ -794,19 +852,19 @@ done</code></pre>
 <ol class="space-y-3.5 my-6 list-none">
   <li class="flex items-start gap-3.5 text-slate-300 text-base leading-relaxed">
     <span class="flex-shrink-0 flex items-center justify-center w-6 h-6 rounded-full bg-sky-950 text-sky-400 border border-sky-800 text-xs font-bold font-mono">1</span>
-    <div>OpenSearch indexes the attack events with MaxMind GeoIP telemetry.</div>
+    <div>OpenSearch indexes the attack events with MaxMind GeoIP telemetry and OWASP CRS category classification.</div>
   </li>
   <li class="flex items-start gap-3.5 text-slate-300 text-base leading-relaxed">
     <span class="flex-shrink-0 flex items-center justify-center w-6 h-6 rounded-full bg-sky-950 text-sky-400 border border-sky-800 text-xs font-bold font-mono">2</span>
-    <div>The <code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">auto_block_waf_ips</code> daemon flags &gt; 5 attacks in the 15-minute sliding window.</div>
+    <div>The <code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">auto_block_waf_ips</code> daemon flags &gt; 5 verified exploit payloads in the 15-minute sliding window.</div>
   </li>
   <li class="flex items-start gap-3.5 text-slate-300 text-base leading-relaxed">
     <span class="flex-shrink-0 flex items-center justify-center w-6 h-6 rounded-full bg-sky-950 text-sky-400 border border-sky-800 text-xs font-bold font-mono">3</span>
-    <div>Coraza WAF hot-reloads Rule <code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">100020</code>, adding your IP to the atomic blocklist.</div>
+    <div>Coraza WAF hot-reloads Rule <code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">100020</code>, adding the attacker IP to the atomic Phase 1 blocklist.</div>
   </li>
   <li class="flex items-start gap-3.5 text-slate-300 text-base leading-relaxed">
     <span class="flex-shrink-0 flex items-center justify-center w-6 h-6 rounded-full bg-sky-950 text-sky-400 border border-sky-800 text-xs font-bold font-mono">4</span>
-    <div>Next request from the same IP is blocked at Phase 1 before consuming reverse proxy resources:</div>
+    <div>Next request from the same IP is permanently blocked before consuming upstream resources:</div>
   </li>
 </ol>
 
@@ -816,7 +874,7 @@ done</code></pre>
     <button onclick="navigator.clipboard.writeText(this.parentElement.nextElementSibling.innerText); this.innerText='Copied!'; setTimeout(()=>this.innerText='Copy', 2000)" class="hover:text-white transition px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs">Copy</button>
   </div>
   <pre class="p-4 text-xs font-mono text-slate-200 overflow-x-auto leading-relaxed"><code>curl -i &quot;http://&lt;YOUR_INGRESS_IP&gt;/&quot;
-# HTTP/1.1 403 Forbidden (Coraza IP Blocklist: Blocked Client IP)</code></pre>
+# HTTP/1.1 403 Forbidden (Coraza IP Blocklist: Malicious Exploit Payload Detected)</code></pre>
 </div>
 
 <hr class="border-slate-800 my-10" />
@@ -869,6 +927,16 @@ done</code></pre>
       OWASP CRS v4.3 Paranoia Level 1 produced zero false positives across standard web UI workflows. However, REST APIs receiving serialized JSON objects with embedded SQL keywords (e.g. <code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">order_by</code> or base64 JWT payloads) required targeted Phase 1 SecRule exclusions (<code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">ctl:ruleRemoveById</code>) on specific API endpoints before Phase 2 inspection.
     </p>
   </div>
+
+  <div class="p-4 rounded-xl border border-slate-800 bg-slate-900/60">
+    <div class="flex items-center gap-2 font-mono text-sm font-semibold text-white mb-1.5">
+      <span class="w-2 h-2 rounded-full bg-teal-400"></span>
+      5. Decoupling Rate Limits from Exploit Quarantining
+    </div>
+    <p class="text-slate-300 text-sm leading-relaxed">
+      Treating non-malicious high-rate traffic (&gt;50 req/15m) with temporary 5-minute cooldowns (HTTP 429) while reserving permanent Phase 1 IP blocking (Rule 100020, HTTP 403) strictly for verified exploit payloads completely prevents false-positive customer lockouts.
+    </p>
+  </div>
 </div>
 
 <h3 id="critical-pitfalls-to-engineer-against" class="text-xl md:text-2xl font-semibold text-slate-100 tracking-tight mt-10 mb-4 flex items-center gap-2">
@@ -909,6 +977,15 @@ done</code></pre>
     </div>
     <p class="text-slate-300 text-sm leading-relaxed">
       Configuring alert monitors on single anomalous hits or narrow 60-second windows without grouping causes email alert floods during routine internet vulnerability sweeps (e.g. Shodan, Shadowserver), quickly exhausting AWS SES sandbox quotas (200 emails/day) and destroying operational focus. <strong class="text-white">Rule:</strong> Base alert triggers strictly on aggregated multi-event thresholds (e.g., &gt;5 discrete attack events across a 15-minute sliding window) grouped by client IP.
+    </p>
+  </div>
+
+  <div class="p-4 rounded-xl border border-rose-900/40 bg-rose-950/10">
+    <div class="flex items-center gap-2 font-mono text-sm font-semibold text-rose-300 mb-1.5">
+      <span>🚨</span> Pitfall 5: Low-Threshold Error Counting Inducing Customer False Positive Blocks
+    </div>
+    <p class="text-slate-300 text-sm leading-relaxed">
+      Naive automated defense loops that aggregate raw HTTP error statuses (<code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">401, 403, 404, 429</code>) with low burst thresholds will inadvertently ban legitimate shoppers and readers who encounter missing assets (e.g. <code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">/favicon.ico</code>) or navigate rapidly. <strong class="text-white">Rule:</strong> Never permanently block an IP based on request volume or error status codes alone. Enforce temporary 5-minute rate limits (HTTP 429) for traffic exceeding 50 req/15m, and restrict permanent Rule 100020 bans strictly to verified OWASP CRS exploit payloads.
     </p>
   </div>
 </div>
