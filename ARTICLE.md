@@ -12,7 +12,7 @@
 
 ## 1. Introduction: The Ingress Defense Dilemma
 
-Exposing applications directly to the public Internet invites relentless automated hostility. Within minutes of provisioning a public IP or DNS record, scanning botnets (`nuclei`, `masscan`, `nikto`), automated exploit frameworks, and credential stuffers begin hammering web endpoints with directory traversal probes (`/etc/passwd`, `.env`, `.git`), webshell uploads (`eval-stdin.php`), and injection attacks (`' OR 1=1--`).
+Exposing web applications to the public Internet invites relentless automated hostility. Within minutes of provisioning a public IP or DNS record, scanning botnets (`nuclei`, `masscan`, `nikto`), automated exploit frameworks, and credential stuffers begin probing web endpoints with directory traversal probes (`/etc/passwd`, `.env`, `.git`), webshell uploads (`eval-stdin.php`), and injection attacks (`' OR 1=1--`).
 
 ```
                 ┌────────────────────────────────────────────────────────┐
@@ -192,11 +192,8 @@ Our WAF reverse proxy is built using **Coraza v3 (`corazawaf/coraza/v3`)** and *
 FROM golang:1.22-alpine AS builder
 WORKDIR /build
 COPY main.go ui.html ./
-RUN go mod init coraza-waf-k8s-defense && \
-    go get github.com/corazawaf/coraza/v3@v3.2.1 \
-           github.com/corazawaf/coraza-coreruleset/v4@v4.3.0 && \
-    go mod tidy && \
-    CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /coraza-waf-server main.go
+RUN go mod init coraza-waf-defense &&     go get github.com/corazawaf/coraza/v3@v3.2.1 \
+           github.com/corazawaf/coraza-coreruleset/v4@v4.3.0 &&     go mod tidy &&     CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /coraza-waf-server main.go
 
 FROM alpine:3.20
 RUN apk add --no-cache ca-certificates
@@ -232,19 +229,54 @@ The web UI provides real-time rule group toggling, a SecLang playground, and a d
 
 ---
 
-## 6. Real-Time Telemetry: OpenSearch Dashboards
+## 6. Real-Time Telemetry: Complete 24-Hour Dashboard Showcase
 
 All audit logs shipped via Fluent Bit pass through the `network-geoip-pipeline` and populate our custom dashboards:
 
-### Visual: Coraza WAF & OWASP Threat Intelligence Dashboard (Dashboard 7)
+### Visual: Coraza WAF & OWASP Threat Intelligence Dashboard (Dashboard 7 - 24h Window)
 
 ![OpenSearch Coraza WAF & Threat Intelligence Dashboard](docs/images/opensearch_dashboard_waf_top.png)
-*Figure 2: OpenSearch Dashboard 7 displaying total inspected requests, blocked attacks, critical OWASP hits, attack traffic timelines, live world coordinate maps, and country choropleth distribution.*
+*Figure 2: OpenSearch Dashboard 7 (Last 24 Hours) displaying 119 total inspected requests, 34 blocked attacks, 25 critical OWASP hits, 18 Rule 100020 IP blocklist drops, attack traffic timelines, live world coordinate maps with pins, and country choropleth distribution.*
 
-### Key Telemetry Visualizations
-1. **Live World Coordinate Attack Origin Map**: Pins incoming attack requests using MaxMind latitude/longitude coordinates.
-2. **OWASP Top 10 Distribution**: Donut visualization showing attack categorizations (SQLi, XSS, RCE, Broken Access Control).
-3. **Top Attacking Client IPs & Rule IDs**: Identifies coordinated scans and brute-force campaigns.
+### Visual: Deep Dive Exploit Attribution & Payloads Table (Dashboard 7 Full)
+
+![OpenSearch WAF Full Exploit Attribution & Payloads](docs/images/opensearch_dashboard_waf_full.png)
+*Figure 3: OpenSearch Dashboard 7 Full Length view featuring the Permanently Blocked Attacker IPs table, Exploit Reasoning & Attribution table, and the Raw Blocked Payloads table showing exact exploit signatures (`/api/exec`, `eval-stdin.php`, `/.env`).*
+
+### Visual: Ingress & Network Traffic Telemetry (Dashboard 4 - 24h Window)
+
+![OpenSearch Network Ingress & GeoIP Traffic Dashboard](docs/images/opensearch_dashboard_network_ingress.png)
+*Figure 4: OpenSearch Dashboard 4 (Network & Ingress) showing external ingress request rates, HTTP status breakdown, Top Public Client IPs, MaxMind GeoIP distribution, and Top User Agents.*
+
+### Visual: Security Analytics & Threat Intelligence (Dashboard 8 - 24h Window)
+
+![OpenSearch Security Analytics & Threat Intel Dashboard](docs/images/opensearch_dashboard_security_analytics.png)
+*Figure 5: OpenSearch Dashboard 8 displaying AlienVault OTX Threat Intel hits, 609 malicious IOC match timeline, security findings categorized by criticality, and 5-minute sliding window correlation rules.*
+
+### Visual: Security & Kubernetes API Audit Trail (Dashboard 5 - 24h Window)
+
+![OpenSearch Security & K8s API Audit Dashboard](docs/images/opensearch_dashboard_audit_security.png)
+*Figure 6: OpenSearch Dashboard 5 tracking Kubernetes control-plane audit events, unauthorized 401/403 RBAC access attempts, verbs, resource types, and host `/var/log/auth.log` authentication attempts.*
+
+### Visual: Prometheus Operations Metrics & Alert History (Dashboard 6 - 24h Window)
+
+![OpenSearch Prometheus Ops & Alert History Dashboard](docs/images/opensearch_dashboard_prometheus_alerts.png)
+*Figure 7: OpenSearch Dashboard 6 summarizing per-node CPU/RAM/Disk metrics across 5 nodes, Longhorn PVC volume utilization percentages, workload failure diagnostics, and AWS SES alert delivery history.*
+
+### Visual: Cluster & Workload Health (Dashboard 1 - 24h Window)
+
+![OpenSearch Cluster & Workload Health Dashboard](docs/images/opensearch_dashboard_cluster_health.png)
+*Figure 8: OpenSearch Dashboard 1 showing 5-node cluster readiness, containerd and kubelet systemd journal streams, and container restart monitors.*
+
+### Visual: Error & Exception Logs (Dashboard 3 - 24h Window)
+
+![OpenSearch Error & Exception Logs Dashboard](docs/images/opensearch_dashboard_error_logs.png)
+*Figure 9: OpenSearch Dashboard 3 tracking runtime exceptions, tracebacks, HTTP 5xx spikes, and application crash events across workloads.*
+
+### Visual: Application Workload Sidecar Streams (Dashboard 2 - 24h Window)
+
+![OpenSearch Application Sidecar Logs Dashboard](docs/images/opensearch_dashboard_app_logs.png)
+*Figure 10: OpenSearch Dashboard 2 reviewing application stdout/stderr logs shipped in real-time from Fluent Bit in-memory sidecars.*
 
 ---
 
@@ -270,7 +302,7 @@ flowchart TD
 ### Visual: Quarantined Attacker IPs & Threat Intelligence Table
 
 ![Coraza WAF Quarantined Attacker IPs & Threat Intelligence Table](docs/images/coraza_waf_blocked_ips_tab.png)
-*Figure 3: Coraza WAF Console Tab 2 showing quarantined attacker IPs, burst thresholds, attack vectors (RCE, SQLi, webshells), sample payloads (`/api/exec`), country origins, and ⚡ Instant Unblock controls.*
+*Figure 11: Coraza WAF Console Tab 2 showing quarantined attacker IPs, burst thresholds, attack vectors (RCE, SQLi, webshells), sample payloads (`/api/exec`), country origins, and ⚡ Instant Unblock controls.*
 
 ### Real-World Attackers Quarantined
 
@@ -291,7 +323,7 @@ flowchart TD
 Single-event alerts ruin on-call rotations. We deployed **14 query-level burst monitors** scheduled every 1 to 2 minutes:
 
 ![OpenSearch Alerting Monitors](docs/images/opensearch_alert_monitors.png)
-*Figure 4: OpenSearch Alerting Monitors console showing the 14 active monitors, criticality tiers ([CRITICAL - P1] through [LOW - P4]), and trigger states.*
+*Figure 12: OpenSearch Alerting Monitors console showing the 14 active monitors, criticality tiers ([CRITICAL - P1] through [LOW - P4]), and trigger states.*
 
 ### Rich Alert Briefing via AWS SES
 When a threshold breaches, engineers receive an enriched notification detailing exact hit rates, top targeted paths, and exploit payloads:

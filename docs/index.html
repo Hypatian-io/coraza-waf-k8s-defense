@@ -131,7 +131,7 @@
 <p class="text-slate-300 text-base md:text-lg leading-relaxed my-4"><a href="https://opensource.org/licenses/MIT" target="_blank" rel="noopener noreferrer" class="inline-block mr-2 my-1"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT" class="h-5 rounded inline" /></a></p>
 <hr class="border-slate-800 my-10" />
 <h2 id="1-introduction-the-ingress-defense-dilemma" class="text-2xl md:text-3xl font-bold text-white tracking-tight mt-14 mb-4 pt-8 border-t border-slate-800/80 flex items-center gap-2"><a href="#1-introduction-the-ingress-defense-dilemma" class="text-sky-500 hover:underline">#</a> 1. Introduction: The Ingress Defense Dilemma</h2>
-<p class="text-slate-300 text-base md:text-lg leading-relaxed my-4">Exposing applications directly to the public Internet invites relentless automated hostility. Within minutes of provisioning a public IP or DNS record, scanning botnets (<code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">nuclei</code>, <code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">masscan</code>, <code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">nikto</code>), automated exploit frameworks, and credential stuffers begin hammering web endpoints with directory traversal probes (<code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">/etc/passwd</code>, <code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">.env</code>, <code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">.git</code>), webshell uploads (<code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">eval-stdin.php</code>), and injection attacks (<code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">' OR 1=1--</code>).</p>
+<p class="text-slate-300 text-base md:text-lg leading-relaxed my-4">Exposing web applications to the public Internet invites relentless automated hostility. Within minutes of provisioning a public IP or DNS record, scanning botnets (<code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">nuclei</code>, <code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">masscan</code>, <code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">nikto</code>), automated exploit frameworks, and credential stuffers begin probing web endpoints with directory traversal probes (<code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">/etc/passwd</code>, <code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">.env</code>, <code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">.git</code>), webshell uploads (<code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">eval-stdin.php</code>), and injection attacks (<code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">' OR 1=1--</code>).</p>
 
 <div class="relative my-8 group rounded-xl overflow-hidden border border-slate-800 bg-slate-950 shadow-2xl">
   <div class="flex items-center justify-between px-4 py-2 bg-slate-900 border-b border-slate-800 text-xs font-mono text-slate-400">
@@ -313,11 +313,8 @@ done</code></pre>
 FROM golang:1.22-alpine AS builder
 WORKDIR /build
 COPY main.go ui.html ./
-RUN go mod init coraza-waf-k8s-defense &amp;&amp; \
-    go get github.com/corazawaf/coraza/v3@v3.2.1 \
-           github.com/corazawaf/coraza-coreruleset/v4@v4.3.0 &amp;&amp; \
-    go mod tidy &amp;&amp; \
-    CGO_ENABLED=0 GOOS=linux go build -ldflags=&quot;-s -w&quot; -o /coraza-waf-server main.go
+RUN go mod init coraza-waf-defense &amp;&amp;     go get github.com/corazawaf/coraza/v3@v3.2.1 \
+           github.com/corazawaf/coraza-coreruleset/v4@v4.3.0 &amp;&amp;     go mod tidy &amp;&amp;     CGO_ENABLED=0 GOOS=linux go build -ldflags=&quot;-s -w&quot; -o /coraza-waf-server main.go
 
 FROM alpine:3.20
 RUN apk add --no-cache ca-certificates
@@ -350,24 +347,76 @@ func updateConfig(newConfig WAFConfig) error {
 <p class="text-slate-300 text-base md:text-lg leading-relaxed my-4">The web UI provides real-time rule group toggling, a SecLang playground, and a dedicated threat intelligence management console:</p>
 
 <figure class="my-10 rounded-xl overflow-hidden border border-slate-800 bg-slate-900 shadow-2xl">
-  <img src="docs/images/coraza_waf_console_rules.png" alt="Coraza WAF Management Console - OWASP Rule Groups" class="w-full object-cover hover:scale-[1.01] transition duration-300" loading="lazy" />
+  <img src="images/coraza_waf_console_rules.png" onerror="this.onerror=null; this.src='https://raw.githubusercontent.com/saadrana219/coraza-waf-k8s-defense/main/docs/images/coraza_waf_console_rules.png';" alt="Coraza WAF Management Console - OWASP Rule Groups" class="w-full object-cover hover:scale-[1.01] transition duration-300" loading="lazy" />
   <figcaption class="p-3.5 text-center text-xs font-mono text-slate-400 bg-slate-950 border-t border-slate-800">📸 Coraza WAF Management Console - OWASP Rule Groups</figcaption>
 </figure>
 <p class="text-slate-300 text-base md:text-lg leading-relaxed my-4"><em class="italic text-slate-300">Figure 1: Coraza v3 Management Console showing global SecRuleEngine settings (On - Active Blocking 403), Paranoia Level 1, and the 10 granular OWASP Top 10 rule group cards.</em></p>
 <hr class="border-slate-800 my-10" />
-<h2 id="6-real-time-telemetry-opensearch-dashboards" class="text-2xl md:text-3xl font-bold text-white tracking-tight mt-14 mb-4 pt-8 border-t border-slate-800/80 flex items-center gap-2"><a href="#6-real-time-telemetry-opensearch-dashboards" class="text-sky-500 hover:underline">#</a> 6. Real-Time Telemetry: OpenSearch Dashboards</h2>
+<h2 id="6-real-time-telemetry-complete-24-hour-dashboard-showcase" class="text-2xl md:text-3xl font-bold text-white tracking-tight mt-14 mb-4 pt-8 border-t border-slate-800/80 flex items-center gap-2"><a href="#6-real-time-telemetry-complete-24-hour-dashboard-showcase" class="text-sky-500 hover:underline">#</a> 6. Real-Time Telemetry: Complete 24-Hour Dashboard Showcase</h2>
 <p class="text-slate-300 text-base md:text-lg leading-relaxed my-4">All audit logs shipped via Fluent Bit pass through the <code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">network-geoip-pipeline</code> and populate our custom dashboards:</p>
-<h3 id="visual-coraza-waf-owasp-threat-intelligence-dashboard-dashboard-7" class="text-xl md:text-2xl font-semibold text-slate-100 tracking-tight mt-8 mb-3">Visual: Coraza WAF & OWASP Threat Intelligence Dashboard (Dashboard 7)</h3>
+<h3 id="visual-coraza-waf-owasp-threat-intelligence-dashboard-dashboard-7-24h-window" class="text-xl md:text-2xl font-semibold text-slate-100 tracking-tight mt-8 mb-3">Visual: Coraza WAF & OWASP Threat Intelligence Dashboard (Dashboard 7 - 24h Window)</h3>
 
 <figure class="my-10 rounded-xl overflow-hidden border border-slate-800 bg-slate-900 shadow-2xl">
-  <img src="docs/images/opensearch_dashboard_waf_top.png" alt="OpenSearch Coraza WAF & Threat Intelligence Dashboard" class="w-full object-cover hover:scale-[1.01] transition duration-300" loading="lazy" />
+  <img src="images/opensearch_dashboard_waf_top.png" onerror="this.onerror=null; this.src='https://raw.githubusercontent.com/saadrana219/coraza-waf-k8s-defense/main/docs/images/opensearch_dashboard_waf_top.png';" alt="OpenSearch Coraza WAF & Threat Intelligence Dashboard" class="w-full object-cover hover:scale-[1.01] transition duration-300" loading="lazy" />
   <figcaption class="p-3.5 text-center text-xs font-mono text-slate-400 bg-slate-950 border-t border-slate-800">📸 OpenSearch Coraza WAF & Threat Intelligence Dashboard</figcaption>
 </figure>
-<p class="text-slate-300 text-base md:text-lg leading-relaxed my-4"><em class="italic text-slate-300">Figure 2: OpenSearch Dashboard 7 displaying total inspected requests, blocked attacks, critical OWASP hits, attack traffic timelines, live world coordinate maps, and country choropleth distribution.</em></p>
-<h3 id="key-telemetry-visualizations" class="text-xl md:text-2xl font-semibold text-slate-100 tracking-tight mt-8 mb-3">Key Telemetry Visualizations</h3>
-<li class="ml-6 list-decimal text-slate-300 my-1.5 leading-relaxed text-sm md:text-base"><strong class="text-sky-400 font-bold">1.</strong> <strong class="text-white font-semibold">Live World Coordinate Attack Origin Map</strong>: Pins incoming attack requests using MaxMind latitude/longitude coordinates.</li>
-<li class="ml-6 list-decimal text-slate-300 my-1.5 leading-relaxed text-sm md:text-base"><strong class="text-sky-400 font-bold">2.</strong> <strong class="text-white font-semibold">OWASP Top 10 Distribution</strong>: Donut visualization showing attack categorizations (SQLi, XSS, RCE, Broken Access Control).</li>
-<li class="ml-6 list-decimal text-slate-300 my-1.5 leading-relaxed text-sm md:text-base"><strong class="text-sky-400 font-bold">3.</strong> <strong class="text-white font-semibold">Top Attacking Client IPs & Rule IDs</strong>: Identifies coordinated scans and brute-force campaigns.</li>
+<p class="text-slate-300 text-base md:text-lg leading-relaxed my-4"><em class="italic text-slate-300">Figure 2: OpenSearch Dashboard 7 (Last 24 Hours) displaying 119 total inspected requests, 34 blocked attacks, 25 critical OWASP hits, 18 Rule 100020 IP blocklist drops, attack traffic timelines, live world coordinate maps with pins, and country choropleth distribution.</em></p>
+<h3 id="visual-deep-dive-exploit-attribution-payloads-table-dashboard-7-full" class="text-xl md:text-2xl font-semibold text-slate-100 tracking-tight mt-8 mb-3">Visual: Deep Dive Exploit Attribution & Payloads Table (Dashboard 7 Full)</h3>
+
+<figure class="my-10 rounded-xl overflow-hidden border border-slate-800 bg-slate-900 shadow-2xl">
+  <img src="images/opensearch_dashboard_waf_full.png" onerror="this.onerror=null; this.src='https://raw.githubusercontent.com/saadrana219/coraza-waf-k8s-defense/main/docs/images/opensearch_dashboard_waf_full.png';" alt="OpenSearch WAF Full Exploit Attribution & Payloads" class="w-full object-cover hover:scale-[1.01] transition duration-300" loading="lazy" />
+  <figcaption class="p-3.5 text-center text-xs font-mono text-slate-400 bg-slate-950 border-t border-slate-800">📸 OpenSearch WAF Full Exploit Attribution & Payloads</figcaption>
+</figure>
+<p class="text-slate-300 text-base md:text-lg leading-relaxed my-4"><em class="italic text-slate-300">Figure 3: OpenSearch Dashboard 7 Full Length view featuring the Permanently Blocked Attacker IPs table, Exploit Reasoning & Attribution table, and the Raw Blocked Payloads table showing exact exploit signatures (<code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">/api/exec</code>, <code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">eval-stdin.php</code>, <code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">/.env</code>).</em></p>
+<h3 id="visual-ingress-network-traffic-telemetry-dashboard-4-24h-window" class="text-xl md:text-2xl font-semibold text-slate-100 tracking-tight mt-8 mb-3">Visual: Ingress & Network Traffic Telemetry (Dashboard 4 - 24h Window)</h3>
+
+<figure class="my-10 rounded-xl overflow-hidden border border-slate-800 bg-slate-900 shadow-2xl">
+  <img src="images/opensearch_dashboard_network_ingress.png" onerror="this.onerror=null; this.src='https://raw.githubusercontent.com/saadrana219/coraza-waf-k8s-defense/main/docs/images/opensearch_dashboard_network_ingress.png';" alt="OpenSearch Network Ingress & GeoIP Traffic Dashboard" class="w-full object-cover hover:scale-[1.01] transition duration-300" loading="lazy" />
+  <figcaption class="p-3.5 text-center text-xs font-mono text-slate-400 bg-slate-950 border-t border-slate-800">📸 OpenSearch Network Ingress & GeoIP Traffic Dashboard</figcaption>
+</figure>
+<p class="text-slate-300 text-base md:text-lg leading-relaxed my-4"><em class="italic text-slate-300">Figure 4: OpenSearch Dashboard 4 (Network & Ingress) showing external ingress request rates, HTTP status breakdown, Top Public Client IPs, MaxMind GeoIP distribution, and Top User Agents.</em></p>
+<h3 id="visual-security-analytics-threat-intelligence-dashboard-8-24h-window" class="text-xl md:text-2xl font-semibold text-slate-100 tracking-tight mt-8 mb-3">Visual: Security Analytics & Threat Intelligence (Dashboard 8 - 24h Window)</h3>
+
+<figure class="my-10 rounded-xl overflow-hidden border border-slate-800 bg-slate-900 shadow-2xl">
+  <img src="images/opensearch_dashboard_security_analytics.png" onerror="this.onerror=null; this.src='https://raw.githubusercontent.com/saadrana219/coraza-waf-k8s-defense/main/docs/images/opensearch_dashboard_security_analytics.png';" alt="OpenSearch Security Analytics & Threat Intel Dashboard" class="w-full object-cover hover:scale-[1.01] transition duration-300" loading="lazy" />
+  <figcaption class="p-3.5 text-center text-xs font-mono text-slate-400 bg-slate-950 border-t border-slate-800">📸 OpenSearch Security Analytics & Threat Intel Dashboard</figcaption>
+</figure>
+<p class="text-slate-300 text-base md:text-lg leading-relaxed my-4"><em class="italic text-slate-300">Figure 5: OpenSearch Dashboard 8 displaying AlienVault OTX Threat Intel hits, 609 malicious IOC match timeline, security findings categorized by criticality, and 5-minute sliding window correlation rules.</em></p>
+<h3 id="visual-security-kubernetes-api-audit-trail-dashboard-5-24h-window" class="text-xl md:text-2xl font-semibold text-slate-100 tracking-tight mt-8 mb-3">Visual: Security & Kubernetes API Audit Trail (Dashboard 5 - 24h Window)</h3>
+
+<figure class="my-10 rounded-xl overflow-hidden border border-slate-800 bg-slate-900 shadow-2xl">
+  <img src="images/opensearch_dashboard_audit_security.png" onerror="this.onerror=null; this.src='https://raw.githubusercontent.com/saadrana219/coraza-waf-k8s-defense/main/docs/images/opensearch_dashboard_audit_security.png';" alt="OpenSearch Security & K8s API Audit Dashboard" class="w-full object-cover hover:scale-[1.01] transition duration-300" loading="lazy" />
+  <figcaption class="p-3.5 text-center text-xs font-mono text-slate-400 bg-slate-950 border-t border-slate-800">📸 OpenSearch Security & K8s API Audit Dashboard</figcaption>
+</figure>
+<p class="text-slate-300 text-base md:text-lg leading-relaxed my-4"><em class="italic text-slate-300">Figure 6: OpenSearch Dashboard 5 tracking Kubernetes control-plane audit events, unauthorized 401/403 RBAC access attempts, verbs, resource types, and host <code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">/var/log/auth.log</code> authentication attempts.</em></p>
+<h3 id="visual-prometheus-operations-metrics-alert-history-dashboard-6-24h-window" class="text-xl md:text-2xl font-semibold text-slate-100 tracking-tight mt-8 mb-3">Visual: Prometheus Operations Metrics & Alert History (Dashboard 6 - 24h Window)</h3>
+
+<figure class="my-10 rounded-xl overflow-hidden border border-slate-800 bg-slate-900 shadow-2xl">
+  <img src="images/opensearch_dashboard_prometheus_alerts.png" onerror="this.onerror=null; this.src='https://raw.githubusercontent.com/saadrana219/coraza-waf-k8s-defense/main/docs/images/opensearch_dashboard_prometheus_alerts.png';" alt="OpenSearch Prometheus Ops & Alert History Dashboard" class="w-full object-cover hover:scale-[1.01] transition duration-300" loading="lazy" />
+  <figcaption class="p-3.5 text-center text-xs font-mono text-slate-400 bg-slate-950 border-t border-slate-800">📸 OpenSearch Prometheus Ops & Alert History Dashboard</figcaption>
+</figure>
+<p class="text-slate-300 text-base md:text-lg leading-relaxed my-4"><em class="italic text-slate-300">Figure 7: OpenSearch Dashboard 6 summarizing per-node CPU/RAM/Disk metrics across 5 nodes, Longhorn PVC volume utilization percentages, workload failure diagnostics, and AWS SES alert delivery history.</em></p>
+<h3 id="visual-cluster-workload-health-dashboard-1-24h-window" class="text-xl md:text-2xl font-semibold text-slate-100 tracking-tight mt-8 mb-3">Visual: Cluster & Workload Health (Dashboard 1 - 24h Window)</h3>
+
+<figure class="my-10 rounded-xl overflow-hidden border border-slate-800 bg-slate-900 shadow-2xl">
+  <img src="images/opensearch_dashboard_cluster_health.png" onerror="this.onerror=null; this.src='https://raw.githubusercontent.com/saadrana219/coraza-waf-k8s-defense/main/docs/images/opensearch_dashboard_cluster_health.png';" alt="OpenSearch Cluster & Workload Health Dashboard" class="w-full object-cover hover:scale-[1.01] transition duration-300" loading="lazy" />
+  <figcaption class="p-3.5 text-center text-xs font-mono text-slate-400 bg-slate-950 border-t border-slate-800">📸 OpenSearch Cluster & Workload Health Dashboard</figcaption>
+</figure>
+<p class="text-slate-300 text-base md:text-lg leading-relaxed my-4"><em class="italic text-slate-300">Figure 8: OpenSearch Dashboard 1 showing 5-node cluster readiness, containerd and kubelet systemd journal streams, and container restart monitors.</em></p>
+<h3 id="visual-error-exception-logs-dashboard-3-24h-window" class="text-xl md:text-2xl font-semibold text-slate-100 tracking-tight mt-8 mb-3">Visual: Error & Exception Logs (Dashboard 3 - 24h Window)</h3>
+
+<figure class="my-10 rounded-xl overflow-hidden border border-slate-800 bg-slate-900 shadow-2xl">
+  <img src="images/opensearch_dashboard_error_logs.png" onerror="this.onerror=null; this.src='https://raw.githubusercontent.com/saadrana219/coraza-waf-k8s-defense/main/docs/images/opensearch_dashboard_error_logs.png';" alt="OpenSearch Error & Exception Logs Dashboard" class="w-full object-cover hover:scale-[1.01] transition duration-300" loading="lazy" />
+  <figcaption class="p-3.5 text-center text-xs font-mono text-slate-400 bg-slate-950 border-t border-slate-800">📸 OpenSearch Error & Exception Logs Dashboard</figcaption>
+</figure>
+<p class="text-slate-300 text-base md:text-lg leading-relaxed my-4"><em class="italic text-slate-300">Figure 9: OpenSearch Dashboard 3 tracking runtime exceptions, tracebacks, HTTP 5xx spikes, and application crash events across workloads.</em></p>
+<h3 id="visual-application-workload-sidecar-streams-dashboard-2-24h-window" class="text-xl md:text-2xl font-semibold text-slate-100 tracking-tight mt-8 mb-3">Visual: Application Workload Sidecar Streams (Dashboard 2 - 24h Window)</h3>
+
+<figure class="my-10 rounded-xl overflow-hidden border border-slate-800 bg-slate-900 shadow-2xl">
+  <img src="images/opensearch_dashboard_app_logs.png" onerror="this.onerror=null; this.src='https://raw.githubusercontent.com/saadrana219/coraza-waf-k8s-defense/main/docs/images/opensearch_dashboard_app_logs.png';" alt="OpenSearch Application Sidecar Logs Dashboard" class="w-full object-cover hover:scale-[1.01] transition duration-300" loading="lazy" />
+  <figcaption class="p-3.5 text-center text-xs font-mono text-slate-400 bg-slate-950 border-t border-slate-800">📸 OpenSearch Application Sidecar Logs Dashboard</figcaption>
+</figure>
+<p class="text-slate-300 text-base md:text-lg leading-relaxed my-4"><em class="italic text-slate-300">Figure 10: OpenSearch Dashboard 2 reviewing application stdout/stderr logs shipped in real-time from Fluent Bit in-memory sidecars.</em></p>
 <hr class="border-slate-800 my-10" />
 <h2 id="7-autonomous-attacker-ip-defense-self-healing-waf-loop" class="text-2xl md:text-3xl font-bold text-white tracking-tight mt-14 mb-4 pt-8 border-t border-slate-800/80 flex items-center gap-2"><a href="#7-autonomous-attacker-ip-defense-self-healing-waf-loop" class="text-sky-500 hover:underline">#</a> 7. Autonomous Attacker IP Defense (Self-Healing WAF Loop)</h2>
 <p class="text-slate-300 text-base md:text-lg leading-relaxed my-4">Rather than forcing human operators to review logs and manually update firewalls, our autonomous defense worker continuously evaluates attack telemetry and dynamically isolates hostile IP addresses.</p>
@@ -386,10 +435,10 @@ func updateConfig(newConfig WAFConfig) error {
 <h3 id="visual-quarantined-attacker-ips-threat-intelligence-table" class="text-xl md:text-2xl font-semibold text-slate-100 tracking-tight mt-8 mb-3">Visual: Quarantined Attacker IPs & Threat Intelligence Table</h3>
 
 <figure class="my-10 rounded-xl overflow-hidden border border-slate-800 bg-slate-900 shadow-2xl">
-  <img src="docs/images/coraza_waf_blocked_ips_tab.png" alt="Coraza WAF Quarantined Attacker IPs & Threat Intelligence Table" class="w-full object-cover hover:scale-[1.01] transition duration-300" loading="lazy" />
+  <img src="images/coraza_waf_blocked_ips_tab.png" onerror="this.onerror=null; this.src='https://raw.githubusercontent.com/saadrana219/coraza-waf-k8s-defense/main/docs/images/coraza_waf_blocked_ips_tab.png';" alt="Coraza WAF Quarantined Attacker IPs & Threat Intelligence Table" class="w-full object-cover hover:scale-[1.01] transition duration-300" loading="lazy" />
   <figcaption class="p-3.5 text-center text-xs font-mono text-slate-400 bg-slate-950 border-t border-slate-800">📸 Coraza WAF Quarantined Attacker IPs & Threat Intelligence Table</figcaption>
 </figure>
-<p class="text-slate-300 text-base md:text-lg leading-relaxed my-4"><em class="italic text-slate-300">Figure 3: Coraza WAF Console Tab 2 showing quarantined attacker IPs, burst thresholds, attack vectors (RCE, SQLi, webshells), sample payloads (<code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">/api/exec</code>), country origins, and ⚡ Instant Unblock controls.</em></p>
+<p class="text-slate-300 text-base md:text-lg leading-relaxed my-4"><em class="italic text-slate-300">Figure 11: Coraza WAF Console Tab 2 showing quarantined attacker IPs, burst thresholds, attack vectors (RCE, SQLi, webshells), sample payloads (<code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">/api/exec</code>), country origins, and ⚡ Instant Unblock controls.</em></p>
 <h3 id="real-world-attackers-quarantined" class="text-xl md:text-2xl font-semibold text-slate-100 tracking-tight mt-8 mb-3">Real-World Attackers Quarantined</h3>
 <div class="overflow-x-auto my-8 shadow-xl rounded-xl border border-slate-800"><table class="min-w-full text-left text-sm">
 <thead class="bg-slate-900 text-slate-200 uppercase font-mono text-xs tracking-wider"><tr>
@@ -461,10 +510,10 @@ func updateConfig(newConfig WAFConfig) error {
 <p class="text-slate-300 text-base md:text-lg leading-relaxed my-4">Single-event alerts ruin on-call rotations. We deployed <strong class="text-white font-semibold">14 query-level burst monitors</strong> scheduled every 1 to 2 minutes:</p>
 
 <figure class="my-10 rounded-xl overflow-hidden border border-slate-800 bg-slate-900 shadow-2xl">
-  <img src="docs/images/opensearch_alert_monitors.png" alt="OpenSearch Alerting Monitors" class="w-full object-cover hover:scale-[1.01] transition duration-300" loading="lazy" />
+  <img src="images/opensearch_alert_monitors.png" onerror="this.onerror=null; this.src='https://raw.githubusercontent.com/saadrana219/coraza-waf-k8s-defense/main/docs/images/opensearch_alert_monitors.png';" alt="OpenSearch Alerting Monitors" class="w-full object-cover hover:scale-[1.01] transition duration-300" loading="lazy" />
   <figcaption class="p-3.5 text-center text-xs font-mono text-slate-400 bg-slate-950 border-t border-slate-800">📸 OpenSearch Alerting Monitors</figcaption>
 </figure>
-<p class="text-slate-300 text-base md:text-lg leading-relaxed my-4"><em class="italic text-slate-300">Figure 4: OpenSearch Alerting Monitors console showing the 14 active monitors, criticality tiers ([CRITICAL - P1] through [LOW - P4]), and trigger states.</em></p>
+<p class="text-slate-300 text-base md:text-lg leading-relaxed my-4"><em class="italic text-slate-300">Figure 12: OpenSearch Alerting Monitors console showing the 14 active monitors, criticality tiers ([CRITICAL - P1] through [LOW - P4]), and trigger states.</em></p>
 <h3 id="rich-alert-briefing-via-aws-ses" class="text-xl md:text-2xl font-semibold text-slate-100 tracking-tight mt-8 mb-3">Rich Alert Briefing via AWS SES</h3>
 <p class="text-slate-300 text-base md:text-lg leading-relaxed my-4">When a threshold breaches, engineers receive an enriched notification detailing exact hit rates, top targeted paths, and exploit payloads:</p>
 
