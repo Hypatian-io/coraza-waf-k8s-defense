@@ -139,7 +139,50 @@
 <p class="text-slate-300 text-base md:text-lg leading-relaxed my-4"><a href="https://kubernetes.io/" target="_blank" rel="noopener noreferrer" class="inline-block mr-2 my-1"><img src="https://img.shields.io/badge/Kubernetes-v1.26+-326CE5?logo=kubernetes&logoColor=white" alt="Kubernetes" class="h-5 rounded inline" /></a></p>
 <p class="text-slate-300 text-base md:text-lg leading-relaxed my-4"><a href="https://coraza.io/" target="_blank" rel="noopener noreferrer" class="inline-block mr-2 my-1"><img src="https://img.shields.io/badge/Coraza_WAF-v3.2.1-00ADD8?logo=go&logoColor=white" alt="Coraza WAF" class="h-5 rounded inline" /></a></p>
 <p class="text-slate-300 text-base md:text-lg leading-relaxed my-4"><a href="https://opensearch.org/" target="_blank" rel="noopener noreferrer" class="inline-block mr-2 my-1"><img src="https://img.shields.io/badge/OpenSearch-v2.19.7-005EB8?logo=opensearch&logoColor=white" alt="OpenSearch" class="h-5 rounded inline" /></a></p>
+<p class="text-slate-300 text-base md:text-lg leading-relaxed my-4"><a href="https://github.com/saadrana219/coraza-waf-k8s-defense" target="_blank" rel="noopener noreferrer" class="inline-block mr-2 my-1"><img src="https://img.shields.io/badge/Agentic_Engineering-Gemini_Antigravity_CLI-4285F4?logo=google&logoColor=white" alt="Gemini Antigravity CLI" class="h-5 rounded inline" /></a></p>
 <p class="text-slate-300 text-base md:text-lg leading-relaxed my-4"><a href="https://opensource.org/licenses/MIT" target="_blank" rel="noopener noreferrer" class="inline-block mr-2 my-1"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT" class="h-5 rounded inline" /></a></p>
+<!-- Gemini Antigravity CLI Engineering & Operations Showcase -->
+<div class="my-10 p-6 sm:p-8 rounded-2xl border border-sky-500/30 bg-gradient-to-br from-sky-950/30 via-slate-900/90 to-indigo-950/30 shadow-2xl backdrop-blur relative overflow-hidden">
+  <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-5 border-b border-slate-800">
+    <div class="flex items-center gap-3">
+      <div class="p-2.5 rounded-xl bg-sky-500/10 border border-sky-500/30 text-sky-400">
+        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+      </div>
+      <div>
+        <h3 class="text-lg sm:text-xl font-bold text-white tracking-tight flex items-center gap-2">
+          <span>Engineered with Gemini Antigravity CLI</span>
+        </h3>
+        <p class="text-xs text-sky-400 font-mono mt-0.5">End-to-End Autonomous Engineering, Verification &amp; Publication</p>
+      </div>
+    </div>
+    <span class="px-3 py-1 rounded-full text-xs font-semibold bg-sky-500 text-white shadow-md shadow-sky-500/20">Agentic DevOps</span>
+  </div>
+
+  <p class="text-slate-300 text-sm sm:text-base leading-relaxed mt-5">
+    This entire defense architecture, live Kubernetes deployment, real-time threat analysis, and publication pipeline was engineered and orchestrated using the <strong class="text-white font-semibold">Gemini Antigravity CLI</strong> (<code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">agy</code>). Antigravity functioned as an autonomous engineering partner across the complete stack lifecycle:
+  </p>
+
+  <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mt-6">
+    <div class="p-4 rounded-xl bg-slate-950/70 border border-slate-800/80">
+      <div class="text-xs font-mono font-bold text-sky-400 mb-1">1. ARCHITECTURE &amp; CODE</div>
+      <p class="text-xs text-slate-300 leading-relaxed">
+        Wrote the pure Go Coraza WAF v3 reverse proxy with atomic pointer swapping, wrote lightweight in-memory Fluent Bit logging sidecars, and developed the autonomous IP quarantine daemon.
+      </p>
+    </div>
+    <div class="p-4 rounded-xl bg-slate-950/70 border border-slate-800/80">
+      <div class="text-xs font-mono font-bold text-emerald-400 mb-1">2. VERIFICATION &amp; TELEMETRY</div>
+      <p class="text-xs text-slate-300 leading-relaxed">
+        Tuned 14 OpenSearch burst monitors and correlation detectors, conducted real exploit penetration tests, and drove headless Chrome pipelines to capture and sanitize live production dashboards.
+      </p>
+    </div>
+    <div class="p-4 rounded-xl bg-slate-950/70 border border-slate-800/80">
+      <div class="text-xs font-mono font-bold text-purple-400 mb-1">3. REPO &amp; PUBLICATION</div>
+      <p class="text-xs text-slate-300 leading-relaxed">
+        Built the sanitized standalone open-source repository, configured AWS Route 53 DNS for <code class="px-1 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-[11px]">blog.hypatian.io</code>, issued Let's Encrypt TLS, and deployed this publication.
+      </p>
+    </div>
+  </div>
+</div>
 <hr class="border-slate-800 my-10" />
 <h2 id="1-introduction-the-ingress-defense-dilemma" class="text-2xl md:text-3xl font-bold text-white tracking-tight mt-14 mb-4 pt-8 border-t border-slate-800/80 flex items-center gap-2"><a href="#1-introduction-the-ingress-defense-dilemma" class="text-sky-500 hover:underline">#</a> 1. Introduction: The Ingress Defense Dilemma</h2>
 <p class="text-slate-300 text-base md:text-lg leading-relaxed my-4">At <strong class="text-white font-semibold">Hypatian Systems LLC</strong>, our production Kubernetes cluster serves mission-critical web applications and APIs. Exposing these services to the public Internet invites relentless automated hostility. Within minutes of provisioning a public IP or DNS record, scanning botnets (<code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">nuclei</code>, <code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">masscan</code>, <code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">nikto</code>), automated exploit frameworks, and credential stuffers begin probing web endpoints with directory traversal probes (<code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">/etc/passwd</code>, <code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">.env</code>, <code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">.git</code>), webshell uploads (<code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">eval-stdin.php</code>), and injection attacks (<code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">' OR 1=1--</code>).</p>
