@@ -3,13 +3,14 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Building an Autonomous Cloud-Native Defense Stack: Coraza WAF v3, OpenSearch & Kubernetes</title>
+  <title>Building an Autonomous Cloud-Native Defense Stack | Hypatian Systems LLC: Coraza WAF v3, OpenSearch & Kubernetes</title>
   
   <!-- Primary Meta Tags -->
   <meta name="title" content="Building an Autonomous Cloud-Native Defense Stack on Kubernetes">
   <meta name="description" content="A complete, visual engineering guide to deploying Coraza WAF v3, OpenSearch Security Analytics, Real-Time GeoIP, and Automated Attacker IP Quarantine.">
-  <meta name="author" content="CloudDefense Engineering">
+  <meta name="author" content="Hypatian Systems LLC">
   <link rel="canonical" href="https://saadrana219.github.io/coraza-waf-k8s-defense/">
+  <link rel="icon" type="image/png" href="favicon.png">
 
   <!-- OpenGraph / Facebook / LinkedIn -->
   <meta property="og:type" content="article">
@@ -65,10 +66,10 @@
   <header class="sticky top-0 z-50 backdrop-blur-md bg-slate-950/85 border-b border-slate-800">
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
       <div class="flex items-center gap-3">
-        <span class="text-2xl">🛡️</span>
-        <div>
-          <span class="font-bold text-white text-sm sm:text-base">CloudDefense</span>
-          <span class="hidden sm:inline text-xs text-slate-400 border-l border-slate-800 ml-2 pl-2">Autonomous Kubernetes Ingress Defense</span>
+        <img src="images/hypatian_logo_dark.png" onerror="this.onerror=null; this.src='https://raw.githubusercontent.com/saadrana219/coraza-waf-k8s-defense/main/images/hypatian_logo_dark.png';" alt="Hypatian Systems LLC" class="h-8 sm:h-9 w-auto object-contain" />
+        <div class="hidden sm:block border-l border-slate-800 pl-3">
+          <span class="font-bold text-white text-sm sm:text-base">Hypatian Systems LLC</span>
+          <span class="block text-xs text-slate-400">Autonomous Kubernetes Ingress Defense</span>
         </div>
       </div>
       
@@ -131,7 +132,7 @@
 <p class="text-slate-300 text-base md:text-lg leading-relaxed my-4"><a href="https://opensource.org/licenses/MIT" target="_blank" rel="noopener noreferrer" class="inline-block mr-2 my-1"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT" class="h-5 rounded inline" /></a></p>
 <hr class="border-slate-800 my-10" />
 <h2 id="1-introduction-the-ingress-defense-dilemma" class="text-2xl md:text-3xl font-bold text-white tracking-tight mt-14 mb-4 pt-8 border-t border-slate-800/80 flex items-center gap-2"><a href="#1-introduction-the-ingress-defense-dilemma" class="text-sky-500 hover:underline">#</a> 1. Introduction: The Ingress Defense Dilemma</h2>
-<p class="text-slate-300 text-base md:text-lg leading-relaxed my-4">Exposing web applications to the public Internet invites relentless automated hostility. Within minutes of provisioning a public IP or DNS record, scanning botnets (<code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">nuclei</code>, <code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">masscan</code>, <code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">nikto</code>), automated exploit frameworks, and credential stuffers begin probing web endpoints with directory traversal probes (<code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">/etc/passwd</code>, <code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">.env</code>, <code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">.git</code>), webshell uploads (<code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">eval-stdin.php</code>), and injection attacks (<code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">' OR 1=1--</code>).</p>
+<p class="text-slate-300 text-base md:text-lg leading-relaxed my-4">At <strong class="text-white font-semibold">Hypatian Systems LLC</strong>, our production Kubernetes cluster serves mission-critical web applications and APIs. Exposing these services to the public Internet invites relentless automated hostility. Within minutes of provisioning a public IP or DNS record, scanning botnets (<code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">nuclei</code>, <code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">masscan</code>, <code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">nikto</code>), automated exploit frameworks, and credential stuffers begin probing web endpoints with directory traversal probes (<code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">/etc/passwd</code>, <code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">.env</code>, <code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">.git</code>), webshell uploads (<code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">eval-stdin.php</code>), and injection attacks (<code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">' OR 1=1--</code>).</p>
 
 <div class="relative my-8 group rounded-xl overflow-hidden border border-slate-800 bg-slate-950 shadow-2xl">
   <div class="flex items-center justify-between px-4 py-2 bg-slate-900 border-b border-slate-800 text-xs font-mono text-slate-400">
@@ -421,17 +422,17 @@ func updateConfig(newConfig WAFConfig) error {
 <h2 id="7-autonomous-attacker-ip-defense-self-healing-waf-loop" class="text-2xl md:text-3xl font-bold text-white tracking-tight mt-14 mb-4 pt-8 border-t border-slate-800/80 flex items-center gap-2"><a href="#7-autonomous-attacker-ip-defense-self-healing-waf-loop" class="text-sky-500 hover:underline">#</a> 7. Autonomous Attacker IP Defense (Self-Healing WAF Loop)</h2>
 <p class="text-slate-300 text-base md:text-lg leading-relaxed my-4">Rather than forcing human operators to review logs and manually update firewalls, our autonomous defense worker continuously evaluates attack telemetry and dynamically isolates hostile IP addresses.</p>
 <div class="mermaid my-8 p-6 bg-slate-900/90 border border-slate-800 rounded-xl overflow-x-auto text-center shadow-2xl">flowchart TD
-    Daemon["Autonomous Defense Daemon\n(Runs every 60s in cluster)"] --> Query["Query OpenSearch logs-waf-*\nDate Histogram Aggregation (15m sliding window)"]
-    Query --> Check{"Any external IP with\n> 5 attacks in 15m?"}
+    Daemon["Autonomous Defense Daemon<br>(Runs every 60s in cluster)"] --> Query["Query OpenSearch logs-waf-*<br>Date Histogram Aggregation (15m sliding window)"]
+    Query --> Check{"Any external IP with<br>more than 5 attacks in 15m?"}
     Check -->|No| Sleep["Sleep 60s"]
-    Check -->|Yes| SubnetCheck{"Is IP in Safe Subnets?\n(RFC1918 / Pod CIDR / Loopback)"}
-    SubnetCheck -->|Yes (Private)| Ignore["Protect Private Subnet & Ignore"]
-    SubnetCheck -->|No (Public)| FetchConfig["Fetch Coraza WAF Config\nGET http://coraza-waf-service:8080/api/config"]
+    Check -->|Yes| SubnetCheck{"Is IP in Safe Subnets?<br>(RFC1918 / Pod CIDR / Loopback)"}
+    SubnetCheck -->|Yes Private| Ignore["Protect Private Subnet & Ignore"]
+    SubnetCheck -->|No Public| FetchConfig["Fetch Coraza WAF Config<br>GET http://coraza-waf-service:8080/api/config"]
     FetchConfig --> CheckDupe{"Already Blocked?"}
     CheckDupe -->|Yes| Sleep
-    CheckDupe -->|No| AddRule["Append IP to Blocklist\nGenerate SecRule 100020 @ipMatch"]
-    AddRule --> PostReload["Hot-Reload Coraza WAF Engine\nPOST http://coraza-waf-service:8080/api/config"]
-    PostReload --> EmailAlert["Dispatch AWS SES Executive Alert\n(secops@example.com)"]</div>
+    CheckDupe -->|No| AddRule["Append IP to Blocklist<br>Generate SecRule 100020 @ipMatch"]
+    AddRule --> PostReload["Hot-Reload Coraza WAF Engine<br>POST http://coraza-waf-service:8080/api/config"]
+    PostReload --> EmailAlert["Dispatch AWS SES Executive Alert<br>(secops@hypatian.com)"]</div>
 <h3 id="visual-quarantined-attacker-ips-threat-intelligence-table" class="text-xl md:text-2xl font-semibold text-slate-100 tracking-tight mt-8 mb-3">Visual: Quarantined Attacker IPs & Threat Intelligence Table</h3>
 
 <figure class="my-10 rounded-xl overflow-hidden border border-slate-800 bg-slate-900 shadow-2xl">
@@ -716,14 +717,14 @@ done</code></pre>
 <h3 id="repository-reference-code" class="text-xl md:text-2xl font-semibold text-slate-100 tracking-tight mt-8 mb-3">Repository & Reference Code</h3>
 <p class="text-slate-300 text-base md:text-lg leading-relaxed my-4">All manifests, Go source code, and scripts are open-source:</p>
 <p class="text-slate-300 text-base md:text-lg leading-relaxed my-4">👉 <a href="https://github.com/saadrana219/coraza-waf-k8s-defense" target="_blank" rel="noopener noreferrer" class="text-sky-400 hover:text-sky-300 underline underline-offset-2 transition font-medium"><strong class="text-white font-semibold">https://github.com/saadrana219/coraza-waf-k8s-defense</strong></a></p>
-<p class="text-slate-300 text-base md:text-lg leading-relaxed my-4"><em class="italic text-slate-300">Published by the CloudDefense Infrastructure & Security Engineering Team.</em></p>
+<p class="text-slate-300 text-base md:text-lg leading-relaxed my-4"><em class="italic text-slate-300">Published by the Hypatian Systems LLC Infrastructure & Security Engineering Team.</em></p>
     </article>
   </main>
 
   <!-- Footer -->
   <footer class="border-t border-slate-800 py-12 bg-slate-950 text-center text-xs text-slate-500">
     <div class="max-w-4xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-4">
-      <p>© 2026 CloudDefense Engineering. Published under MIT License.</p>
+      <p>© 2026 Hypatian Systems LLC. All rights reserved. Published under MIT License.</p>
       <div class="flex items-center gap-4">
         <a href="https://github.com/saadrana219/coraza-waf-k8s-defense" class="hover:text-slate-300 transition">GitHub Repo</a>
         <a href="#top" class="hover:text-slate-300 transition">Back to Top ↑</a>
