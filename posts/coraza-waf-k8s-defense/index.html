@@ -709,20 +709,57 @@ Content-Type: application/json
 done</code></pre>
 </div>
 <p class="text-slate-300 text-base md:text-lg leading-relaxed my-4">Within 60 seconds:</p>
-<li class="ml-6 list-decimal text-slate-300 my-1.5 leading-relaxed text-sm md:text-base"><strong class="text-sky-400 font-bold">1.</strong> OpenSearch indexes the attack events with MaxMind GeoIP telemetry.</li>
-<li class="ml-6 list-decimal text-slate-300 my-1.5 leading-relaxed text-sm md:text-base"><strong class="text-sky-400 font-bold">2.</strong> The <code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">auto_block_waf_ips</code> daemon flags $> 5$ attacks in the 15-minute sliding window.</li>
-<li class="ml-6 list-decimal text-slate-300 my-1.5 leading-relaxed text-sm md:text-base"><strong class="text-sky-400 font-bold">3.</strong> Coraza WAF hot-reloads Rule <code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">100020</code>, adding your IP to the atomic blocklist.</li>
-<li class="ml-6 list-decimal text-slate-300 my-1.5 leading-relaxed text-sm md:text-base"><strong class="text-sky-400 font-bold">4.</strong> Next request from the same IP is blocked at Phase 1 before consuming reverse proxy resources:</li>
-<p class="text-slate-300 text-base md:text-lg leading-relaxed my-4">   ```bash</p>
-<p class="text-slate-300 text-base md:text-lg leading-relaxed my-4">   curl -i "http://<YOUR_INGRESS_IP>/"</p>
-<p class="text-slate-300 text-base md:text-lg leading-relaxed my-4">   # HTTP/1.1 403 Forbidden (Coraza IP Blocklist: Blocked Client IP)</p>
-<p class="text-slate-300 text-base md:text-lg leading-relaxed my-4">   ```</p>
+
+<ol class="space-y-3.5 my-6 list-none">
+  <li class="flex items-start gap-3.5 text-slate-300 text-base leading-relaxed">
+    <span class="flex-shrink-0 flex items-center justify-center w-6 h-6 rounded-full bg-sky-950 text-sky-400 border border-sky-800 text-xs font-bold font-mono">1</span>
+    <div>OpenSearch indexes the attack events with MaxMind GeoIP telemetry.</div>
+  </li>
+  <li class="flex items-start gap-3.5 text-slate-300 text-base leading-relaxed">
+    <span class="flex-shrink-0 flex items-center justify-center w-6 h-6 rounded-full bg-sky-950 text-sky-400 border border-sky-800 text-xs font-bold font-mono">2</span>
+    <div>The <code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">auto_block_waf_ips</code> daemon flags &gt; 5 attacks in the 15-minute sliding window.</div>
+  </li>
+  <li class="flex items-start gap-3.5 text-slate-300 text-base leading-relaxed">
+    <span class="flex-shrink-0 flex items-center justify-center w-6 h-6 rounded-full bg-sky-950 text-sky-400 border border-sky-800 text-xs font-bold font-mono">3</span>
+    <div>Coraza WAF hot-reloads Rule <code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">100020</code>, adding your IP to the atomic blocklist.</div>
+  </li>
+  <li class="flex items-start gap-3.5 text-slate-300 text-base leading-relaxed">
+    <span class="flex-shrink-0 flex items-center justify-center w-6 h-6 rounded-full bg-sky-950 text-sky-400 border border-sky-800 text-xs font-bold font-mono">4</span>
+    <div>Next request from the same IP is blocked at Phase 1 before consuming reverse proxy resources:</div>
+  </li>
+</ol>
+
+<div class="relative my-6 group rounded-xl overflow-hidden border border-slate-800 bg-slate-950 shadow-2xl">
+  <div class="flex items-center justify-between px-4 py-2 bg-slate-900 border-b border-slate-800 text-xs font-mono text-slate-400">
+    <span class="font-semibold text-slate-300">bash</span>
+    <button onclick="navigator.clipboard.writeText(this.parentElement.nextElementSibling.innerText); this.innerText='Copied!'; setTimeout(()=>this.innerText='Copy', 2000)" class="hover:text-white transition px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs">Copy</button>
+  </div>
+  <pre class="p-4 text-xs font-mono text-slate-200 overflow-x-auto leading-relaxed"><code>curl -i &quot;http://&lt;YOUR_INGRESS_IP&gt;/&quot;
+# HTTP/1.1 403 Forbidden (Coraza IP Blocklist: Blocked Client IP)</code></pre>
+</div>
+
 <hr class="border-slate-800 my-10" />
+
 <h2 id="12-conclusion-key-takeaways" class="text-2xl md:text-3xl font-bold text-white tracking-tight mt-14 mb-4 pt-8 border-t border-slate-800/80 flex items-center gap-2"><a href="#12-conclusion-key-takeaways" class="text-sky-500 hover:underline">#</a> 12. Conclusion & Key Takeaways</h2>
-<li class="ml-6 list-decimal text-slate-300 my-1.5 leading-relaxed text-sm md:text-base"><strong class="text-sky-400 font-bold">1.</strong> <strong class="text-white font-semibold">Pure Go WAFs Eliminate Legacy Fragility</strong>: Coraza v3 delivers full OWASP Core Rule Set protection without the memory leaks and complex restarts of legacy C/C++ ModSecurity.</li>
-<li class="ml-6 list-decimal text-slate-300 my-1.5 leading-relaxed text-sm md:text-base"><strong class="text-sky-400 font-bold">2.</strong> <strong class="text-white font-semibold">In-Memory Sidecars Protect Node Disks</strong>: Isolating high-volume audit logs to RAM (<code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">tmpfs</code>) with 5 MB self-truncation guarantees that attack storms cannot crash Kubernetes nodes.</li>
-<li class="ml-6 list-decimal text-slate-300 my-1.5 leading-relaxed text-sm md:text-base"><strong class="text-sky-400 font-bold">3.</strong> <strong class="text-white font-semibold">Burst Detectors Restore Alert Reliability</strong>: Triggering notifications only on aggregated attack volume eliminates on-call fatigue while providing rich payload forensics.</li>
-<li class="ml-6 list-decimal text-slate-300 my-1.5 leading-relaxed text-sm md:text-base"><strong class="text-sky-400 font-bold">4.</strong> <strong class="text-white font-semibold">Autonomous Feedback Loops Transform Telemetry into Defense</strong>: Observability must not be passive—linking OpenSearch analytics directly back into Coraza's SecLang compiler creates a self-healing security mesh.</li>
+
+<ol class="space-y-4 my-6 list-none">
+  <li class="flex items-start gap-3.5 text-slate-300 text-base leading-relaxed">
+    <span class="flex-shrink-0 flex items-center justify-center w-6 h-6 rounded-full bg-sky-950 text-sky-400 border border-sky-800 text-xs font-bold font-mono">1</span>
+    <div><strong class="text-white font-semibold">Pure Go WAFs Eliminate Legacy Fragility</strong>: Coraza v3 delivers full OWASP Core Rule Set protection without the memory leaks and complex restarts of legacy C/C++ ModSecurity.</div>
+  </li>
+  <li class="flex items-start gap-3.5 text-slate-300 text-base leading-relaxed">
+    <span class="flex-shrink-0 flex items-center justify-center w-6 h-6 rounded-full bg-sky-950 text-sky-400 border border-sky-800 text-xs font-bold font-mono">2</span>
+    <div><strong class="text-white font-semibold">In-Memory Sidecars Protect Node Disks</strong>: Isolating high-volume audit logs to RAM (<code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">tmpfs</code>) with 5 MB self-truncation guarantees that attack storms cannot crash Kubernetes nodes.</div>
+  </li>
+  <li class="flex items-start gap-3.5 text-slate-300 text-base leading-relaxed">
+    <span class="flex-shrink-0 flex items-center justify-center w-6 h-6 rounded-full bg-sky-950 text-sky-400 border border-sky-800 text-xs font-bold font-mono">3</span>
+    <div><strong class="text-white font-semibold">Burst Detectors Restore Alert Reliability</strong>: Triggering notifications only on aggregated attack volume eliminates on-call fatigue while providing rich payload forensics.</div>
+  </li>
+  <li class="flex items-start gap-3.5 text-slate-300 text-base leading-relaxed">
+    <span class="flex-shrink-0 flex items-center justify-center w-6 h-6 rounded-full bg-sky-950 text-sky-400 border border-sky-800 text-xs font-bold font-mono">4</span>
+    <div><strong class="text-white font-semibold">Autonomous Feedback Loops Transform Telemetry into Defense</strong>: Observability must not be passive—linking OpenSearch analytics directly back into Coraza's SecLang compiler creates a self-healing security mesh.</div>
+  </li>
+</ol>
 <hr class="border-slate-800 my-10" />
 <h3 id="repository-reference-code" class="text-xl md:text-2xl font-semibold text-slate-100 tracking-tight mt-8 mb-3">Repository & Reference Code</h3>
 <p class="text-slate-300 text-base md:text-lg leading-relaxed my-4">All manifests, Go source code, and scripts are open-source:</p>
