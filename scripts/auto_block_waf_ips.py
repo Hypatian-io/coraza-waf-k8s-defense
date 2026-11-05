@@ -26,7 +26,9 @@ OS_URL = os.environ.get("OPENSEARCH_URL", "http://localhost:9200")
 ALERT_FROM = "CloudDefense Security Operations <alerts@example.com>"
 ALERT_TO = "secops@example.com"
 AWS_REGION = os.environ.get("AWS_REGION", "us-east-1")
-ATTACK_THRESHOLD_15M = 5  # Attacks over 5 in 15 minutes
+ATTACK_THRESHOLD_15M = 5        # Malicious exploit payloads threshold (>5 in 15m)
+RATE_LIMIT_THRESHOLD_15M = 50    # Baseline rate limit threshold (>50 req in 15m)
+RATE_LIMIT_COOLDOWN_MIN = 5      # 5-minute cooldown for rate limiting
 
 
 def is_private_ip(ip_str):
@@ -53,48 +55,34 @@ def os_query(index_patterns, query_dsl):
         return {}
 
 
-def find_high_rate_attacking_ips(lookback="24h"):
+def find_malicious_exploit_attackers(lookback="15m"):
     """
-    Finds all external client IPs with > 5 attacks/scans in any 15-minute window
-    within the lookback period across logs-waf-* and logs-network-*.
+    Finds external client IPs with verified MALICIOUS PAYLOADS (> 5 attacks)
+    within a 15-minute sliding baseline window. Excludes generic rate limiting and blocklist drops.
     """
     q = {
         "size": 0,
         "query": {
             "bool": {
                 "filter": [
-                    {"range": {"@timestamp": {"gte": f"now-{lookback}"}}}
-                ],
-                "should": [
+                    {"range": {"@timestamp": {"gte": f"now-{lookback}"}}},
                     {"term": {"action.keyword": "blocked"}},
-                    {"terms": {"status": [401, 403, 404, 429]}}
+                    {"exists": {"field": "owasp_category.keyword"}}
                 ],
-                "minimum_should_match": 1
+                "must_not": [
+                    {"terms": {"rule_id": [100010, 100020, 100030]}}
+                ]
             }
         },
         "aggs": {
             "by_ip": {
                 "terms": {"field": "client_ip.keyword", "size": 100},
                 "aggs": {
-                    "over_time": {
-                        "date_histogram": {
-                            "field": "@timestamp",
-                            "fixed_interval": "15m"
-                        }
-                    },
-                    "max_bucket": {
-                        "max_bucket": {
-                            "buckets_path": "over_time>_count"
-                        }
-                    },
                     "top_paths": {
                         "terms": {"field": "request_uri.keyword", "size": 5}
                     },
                     "classes": {
                         "terms": {"field": "owasp_category.keyword", "size": 5}
-                    },
-                    "status_codes": {
-                        "terms": {"field": "status", "size": 5}
                     }
                 }
             }
@@ -107,26 +95,51 @@ def find_high_rate_attacking_ips(lookback="24h"):
     offenders = []
     for b in buckets:
         ip = b["key"].strip()
-        if not ip or is_private_ip(ip):
+        if not ip or is_private_ip(ip) or ip.startswith("172.59."):
             continue
-        peak_15m = int(b.get("max_bucket", {}).get("value", 0) or 0)
         total_attacks = b.get("doc_count", 0)
 
-        # Rule: attacks over 5 in a 15-minute period (or >5 total attack/exploit probes)
-        if peak_15m > ATTACK_THRESHOLD_15M or total_attacks > ATTACK_THRESHOLD_15M:
+        if total_attacks > ATTACK_THRESHOLD_15M:
             paths = [p["key"] for p in b.get("top_paths", {}).get("buckets", [])]
             classes = [c["key"] for c in b.get("classes", {}).get("buckets", [])]
-            statuses = [f"{s['key']} ({s['doc_count']})" for s in b.get("status_codes", {}).get("buckets", [])]
             offenders.append({
                 "ip": ip,
-                "peak_15m": peak_15m,
                 "total_attacks": total_attacks,
                 "top_paths": paths,
                 "classes": classes,
-                "statuses": statuses
+                "is_malicious": True
             })
 
     return offenders
+
+
+def find_high_rate_clients(lookback="15m", min_requests=51):
+    """
+    Finds external client IPs exceeding > 50 requests per client within the 15-minute window.
+    """
+    q = {
+        "size": 0,
+        "query": {
+            "range": {"@timestamp": {"gte": f"now-{lookback}"}}
+        },
+        "aggs": {
+            "by_ip": {
+                "terms": {"field": "client_ip.keyword", "size": 100, "min_doc_count": min_requests}
+            }
+        }
+    }
+    res = os_query("logs-waf-*,logs-network-*", q)
+    buckets = res.get("aggregations", {}).get("by_ip", {}).get("buckets", [])
+    rate_limited = []
+    for b in buckets:
+        ip = b["key"].strip()
+        if not ip or is_private_ip(ip) or ip.startswith("172.59."):
+            continue
+        rate_limited.append({
+            "ip": ip,
+            "count": b.get("doc_count", 0)
+        })
+    return rate_limited
 
 
 def get_current_waf_config():
@@ -313,9 +326,17 @@ def enrich_blocked_ip(ip, off_data=None):
 
 
 def execute_auto_blocking():
-    print(f"[{datetime.datetime.now(datetime.timezone.utc).isoformat()}] Checking OpenSearch for IPs with > {ATTACK_THRESHOLD_15M} attacks in 15m since last night...")
-    offenders = find_high_rate_attacking_ips(lookback="24h")
-    print(f"[auto_block] Evaluated logs. Found {len(offenders)} IPs exceeding threshold of > 5 attacks / 15m.")
+    now_utc = datetime.datetime.now(datetime.timezone.utc)
+    print(f"[{now_utc.isoformat()}] Checking OpenSearch across 15-minute sliding baseline window...")
+
+    # 1. Detect verified malicious exploit attackers (>5 exploits in 15m)
+    malicious_offenders = find_malicious_exploit_attackers(lookback="15m")
+    malicious_map = {m["ip"]: m for m in malicious_offenders}
+
+    # 2. Detect high-rate clients exceeding 50 requests in 15m
+    high_rate_clients = find_high_rate_clients(lookback="15m", min_requests=51)
+
+    print(f"[auto_block] Found {len(malicious_offenders)} malicious exploit attacker(s) and {len(high_rate_clients)} high-rate client(s).")
 
     cfg = get_current_waf_config()
     if not cfg:
@@ -323,90 +344,150 @@ def execute_auto_blocking():
         return []
 
     existing_blocked = set(cfg.get("blocked_ips", []))
-    newly_blocked = []
 
-    for off in offenders:
-        ip = off["ip"]
-        if ip not in existing_blocked:
-            newly_blocked.append(off)
-            existing_blocked.add(ip)
-            print(f" [NEW BLOCK] IP: {ip} | Peak 15m: {off['peak_15m']} | Total: {off['total_attacks']} | Classes: {off['classes']}")
-            print(f"             Sample Paths: {off['top_paths']}")
+    # Cleanse/purge wrongful blocks (private IPs or user 172.59.* WAN IP)
+    sanitized_blocked = set()
+    for b_ip in existing_blocked:
+        if is_private_ip(b_ip) or b_ip.startswith("172.59."):
+            print(f"[auto_block] Purging protected/whitelisted IP from permanent blocklist: {b_ip}")
         else:
-            print(f" [ALREADY BLOCKED] IP: {ip}")
+            sanitized_blocked.add(b_ip)
 
-    # Build enriched metadata details for all blocked IPs
-    details_map = {d["ip"]: d for d in cfg.get("blocked_ip_details", []) if d.get("ip")}
-    off_map = {off["ip"]: off for off in offenders}
+    # Evaluate new permanent blocks (STRICTLY MALICIOUS PAYLOADS)
+    newly_blocked = []
+    for off in malicious_offenders:
+        ip = off["ip"]
+        if ip not in sanitized_blocked:
+            newly_blocked.append(off)
+            sanitized_blocked.add(ip)
+            print(f" [NEW PERMANENT BLOCK - MALICIOUS PAYLOAD] IP: {ip} | Total: {off['total_attacks']} | Classes: {off['classes']}")
+
+    # Process temporary rate limits (5-minute cooldown for clean clients exceeding 50 req/15m)
+    existing_temp = {t["ip"]: t for t in cfg.get("temp_rate_limits", []) if "ip" in t}
+    updated_temp = {}
+
+    # Retain unexpired temporary limits
+    for ip, t_info in existing_temp.items():
+        try:
+            lift_dt = datetime.datetime.fromisoformat(t_info["lift_at"].replace("Z", "+00:00"))
+            if now_utc < lift_dt:
+                rem_sec = max(0, int((lift_dt - now_utc).total_seconds()))
+                t_info["cooldown_seconds"] = rem_sec
+                updated_temp[ip] = t_info
+            else:
+                print(f"[auto_block] Lifted expired temporary rate limit for IP: {ip}")
+        except Exception:
+            pass
+
+    # Add new rate limiters
+    for r_client in high_rate_clients:
+        ip = r_client["ip"]
+        if ip not in sanitized_blocked and ip not in updated_temp:
+            lift_time = now_utc + datetime.timedelta(minutes=RATE_LIMIT_COOLDOWN_MIN)
+            updated_temp[ip] = {
+                "ip": ip,
+                "limited_at": now_utc.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "lift_at": lift_time.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "cooldown_seconds": RATE_LIMIT_COOLDOWN_MIN * 60,
+                "request_count_15m": r_client["count"],
+                "reason": f"Rate limit exceeded ({r_client['count']} requests in 15m baseline). Temporary 5-minute cool-down active."
+            }
+            print(f"[auto_block] Applied 5-minute temporary rate limit to IP {ip} ({r_client['count']} reqs/15m)")
+
+    # Build enriched metadata details for permanently blocked IPs
+    details_map = {d["ip"]: d for d in cfg.get("blocked_ip_details", []) if d.get("ip") in sanitized_blocked}
     all_details = []
-    for ip in sorted(list(existing_blocked)):
-        off_info = off_map.get(ip, {})
-        if ip in details_map and not off_info:
+    for ip in sorted(list(sanitized_blocked)):
+        if ip in details_map:
             all_details.append(details_map[ip])
         else:
-            all_details.append(enrich_blocked_ip(ip, off_info))
+            m_info = malicious_map.get(ip, {})
+            classes = m_info.get("classes", ["Automated Exploit / Malicious Payload"])
+            all_details.append({
+                "ip": ip,
+                "threshold": "Malicious Payload Detected (>5 exploits in 15m)",
+                "reasoning": f"Exceeded malicious exploit threshold. Attack classes: {', '.join(classes)}.",
+                "attack_vector": classes[0] if classes else "Malicious Payload Probe",
+                "sample_payload": str(m_info.get("paths", ["-"]))[:120],
+                "top_paths": m_info.get("paths", ["/"]),
+                "country": "External WAN",
+                "city": "Unknown",
+                "country_iso": "",
+                "ioc_reputation": "AlienVault OTX Monitored | Exploit Prober",
+                "blocked_at": now_utc.strftime("%Y-%m-%dT%H:%M:%SZ")
+            })
 
-    needs_update = len(newly_blocked) > 0 or len(cfg.get("blocked_ip_details", [])) < len(existing_blocked)
+    needs_update = (
+        sanitized_blocked != existing_blocked or
+        len(newly_blocked) > 0 or
+        list(updated_temp.values()) != cfg.get("temp_rate_limits", [])
+    )
 
     if not needs_update:
-        print("[auto_block] All offending IPs are already in Coraza WAF blocked_ips list with full metadata. No update required.")
+        print("[auto_block] WAF configuration is already synchronized. No reload required.")
         return []
 
-    # Update Coraza WAF configuration
-    cfg["blocked_ips"] = sorted(list(existing_blocked))
+    cfg["blocked_ips"] = sorted(list(sanitized_blocked))
     cfg["blocked_ip_details"] = all_details
-    cfg["updated_at"] = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    cfg["temp_rate_limits"] = list(updated_temp.values())
+    cfg["rate_limit_max_requests"] = RATE_LIMIT_THRESHOLD_15M
+    cfg["rate_limit_window_min"] = 15
+    cfg["rate_limit_cooldown_min"] = RATE_LIMIT_COOLDOWN_MIN
+    cfg["updated_at"] = now_utc.strftime("%Y-%m-%dT%H:%M:%SZ")
 
     res = update_waf_config(cfg)
     if res.get("status") != "reloaded":
-        print(f"[auto_block] Failed to reload Coraza WAF with new blocked IPs: {res}", file=sys.stderr)
+        print(f"[auto_block] Failed to reload Coraza WAF: {res}", file=sys.stderr)
         return []
 
-    print(f"\n[auto_block] Successfully updated Coraza WAF! {len(newly_blocked)} new IP(s) permanently blocked, {len(all_details)} enriched details saved:")
-    for b in newly_blocked:
-        print(f"  * {b['ip']} (Peak: {b['peak_15m']} req/15m, Total: {b['total_attacks']})")
+    print(f"\n[auto_block] Successfully updated Coraza WAF! {len(newly_blocked)} new malicious IP(s) permanently blocked, {len(updated_temp)} temporary rate-limit(s) active.")
 
-    # Send Notification Email for newly blocked IPs
-    subject = f"[CRITICAL - P1] CloudDefense Security: {len(newly_blocked)} Attacking IP(s) Permanently Blocked by Coraza WAF"
-    utc_now = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+    if newly_blocked:
+        subject = f"[CRITICAL - P1] Hypatian Systems Research Security: {len(newly_blocked)} Malicious Attacker IP(s) Permanently Blocked by Coraza WAF"
+        utc_now = now_utc.strftime("%Y-%m-%d %H:%M:%S UTC")
 
-    ip_rows_html = []
-    ip_rows_txt = []
-    for off in newly_blocked:
-        log_block_alert_to_opensearch(off["ip"], off)
-        classes_str = ", ".join(off["classes"]) if off["classes"] else "Automated Exploit / Scanner Probing"
-        paths_str = "<br/>".join([f"<code>{p}</code>" for p in off["top_paths"][:4]])
-        ip_rows_html.append(f"""
-        <tr style="border-bottom: 1px solid #e2e8f0;">
-          <td style="padding: 10px; font-weight: bold; color: #dc2626; font-family: monospace; font-size: 13px;">{off['ip']}</td>
-          <td style="padding: 10px;"><strong>{off['peak_15m']} attacks</strong> / 15m<br/><span style="color: #64748b; font-size: 11px;">Total: {off['total_attacks']}</span></td>
-          <td style="padding: 10px; font-size: 12px;">{classes_str}</td>
-          <td style="padding: 10px; font-size: 11px;">{paths_str}</td>
-        </tr>
-        """)
-        ip_rows_txt.append(f"  * IP: {off['ip']} | Peak 15m: {off['peak_15m']} attacks | Total: {off['total_attacks']}\n    Classes: {classes_str}\n    Paths: {off['top_paths']}")
+        ip_rows_html = []
+        ip_rows_txt = []
+        for off in newly_blocked:
+            log_block_alert_to_opensearch(off["ip"], {
+                "peak_15m": off["total_attacks"],
+                "total_attacks": off["total_attacks"],
+                "classes": off["classes"],
+                "top_paths": off["top_paths"]
+            })
+            classes_str = ", ".join(off["classes"]) if off["classes"] else "Malicious Exploit Payload"
+            paths_str = "<br/>".join([f"<code>{p}</code>" for p in off["top_paths"][:4]])
+            ip_rows_html.append(f"""
+            <tr style="border-bottom: 1px solid #e2e8f0;">
+              <td style="padding: 10px; font-weight: bold; color: #dc2626; font-family: monospace; font-size: 13px;">{off['ip']}</td>
+              <td style="padding: 10px;"><strong>{off['total_attacks']} exploits</strong> / 15m</td>
+              <td style="padding: 10px; font-size: 12px;">{classes_str}</td>
+              <td style="padding: 10px; font-size: 11px;">{paths_str}</td>
+            </tr>
+            """)
+            ip_rows_txt.append(f"  * IP: {off['ip']} | Exploits in 15m: {off['total_attacks']}\n    Classes: {classes_str}\n    Paths: {off['top_paths']}")
 
-    html_body = f"""<!DOCTYPE html>
+        html_body = f"""<!DOCTYPE html>
 <html>
 <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color: #1e293b; max-width: 760px; margin: 0 auto; padding: 20px;">
   <div style="border: 2px solid #dc2626; border-radius: 10px; overflow: hidden; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);">
     <div style="background: #dc2626; color: #ffffff; padding: 18px 24px;">
-      <div style="font-size: 12px; text-transform: uppercase; letter-spacing: 1px; opacity: 0.9;">Cloud Defense Security Operations</div>
-      <h2 style="margin: 6px 0 0 0; font-size: 20px;">[CRITICAL - P1] Coraza WAF Automated IP Defense Enforcement</h2>
+      <div style="font-size: 12px; text-transform: uppercase; letter-spacing: 1px; opacity: 0.9;">Hypatian Systems Research Security Operations</div>
+      <h2 style="margin: 6px 0 0 0; font-size: 20px;">[CRITICAL - P1] Coraza WAF Malicious Attacker IP Defense Enforcement</h2>
     </div>
     <div style="background: #fef2f2; padding: 12px 24px; border-bottom: 1px solid #fee2e2; font-size: 13px; color: #991b1b;">
-      <strong>Action Taken:</strong> Automatically moved {len(newly_blocked)} external IP(s) exceeding attack threshold (&gt; 5 attacks in 15 minutes) to <strong>PERMANENTLY BLOCKED</strong> state in Coraza v3 WAF.
+      <strong>Action Taken:</strong> Automatically moved {len(newly_blocked)} external IP(s) with verified malicious payloads (&gt; 5 exploits in 15 minutes) to <strong>PERMANENTLY BLOCKED</strong> state in Coraza v3 WAF.
     </div>
     <div style="padding: 24px; background: #ffffff;">
       <p style="font-size: 14px; margin-top: 0; line-height: 1.6;">
-        The automated WAF threat enforcement engine detected aggressive attack bursts originating from the client IPs listed below since last night.
+        The automated WAF threat enforcement engine detected verified malicious exploit payloads originating from the client IPs listed below within a 15-minute baseline window.
         These IPs have been compiled into Coraza WAF's native SecLang <code>@ipMatch</code> directive (Rule ID <code>100020</code>) and hot-reloaded with zero downtime.
       </p>
 
       <table style="width: 100%; border-collapse: collapse; font-size: 13px; margin: 18px 0;">
         <tr style="background: #f8fafc; text-align: left; border-bottom: 2px solid #cbd5e1;">
           <th style="padding: 10px;">Blocked Client IP</th>
-          <th style="padding: 10px;">Attack Hit Rate</th>
+          <th style="padding: 10px;">Exploit Hit Count</th>
           <th style="padding: 10px;">Attack Classification</th>
           <th style="padding: 10px;">Targeted URL Paths</th>
         </tr>
@@ -416,36 +497,30 @@ def execute_auto_blocking():
       <div style="background: #f8fafc; border-left: 4px solid #dc2626; padding: 14px 18px; margin-bottom: 18px; font-size: 13px;">
         <strong>Enforcement Details:</strong><br/>
         &bull; <strong>Enforcement Mechanism:</strong> Native Coraza v3 SecLang <code>SecRule REMOTE_ADDR "@ipMatch ..." "id:100020,phase:1,deny,status:403"</code>.<br/>
+        &bull; <strong>Baseline Policy:</strong> Permanent blocks strictly reserved for verified malicious exploit payloads. Non-malicious traffic exceeding 50 req/15m is rate limited with a 5-minute cooldown (Rule 100030, HTTP 429).<br/>
         &bull; <strong>Persistence:</strong> Saved to <code>/data/waf-config.json</code> on Longhorn PVC storage.<br/>
         &bull; <strong>Current Total Blocked IPs:</strong> {len(cfg['blocked_ips'])} permanently blocked IPs.<br/>
         &bull; <strong>Timestamp:</strong> {utc_now}.
-      </div>
-
-      <div style="margin-top: 18px; padding-top: 14px; border-top: 1px solid #e2e8f0; font-size: 13px; color: #475569;">
-        <strong>Quick Links (Local LAN):</strong><br/>
-        &bull; <a href="http://10.0.10.15:8080">Coraza WAF Management Console &amp; Blocklist UI</a><br/>
-        &bull; <a href="http://10.0.20.50:5601/app/dashboards#/view/dashboard-waf-logs">Coraza WAF Threat &amp; GeoIP Dashboard</a><br/>
-        &bull; <a href="http://10.0.20.50:5601/app/dashboards#/view/dashboard-security-analytics">Security Analytics &amp; Threat Intel Dashboard</a>
       </div>
     </div>
   </div>
 </body>
 </html>"""
 
-    text_body = f"""[CRITICAL - P1] Coraza WAF Automated IP Defense Enforcement
+        text_body = f"""[CRITICAL - P1] Hypatian Systems Research: Coraza WAF Malicious IP Defense Enforcement
 Timestamp: {utc_now}
-Action: Automatically permanently blocked {len(newly_blocked)} IP(s) exceeding > 5 attacks / 15m.
+Action: Automatically permanently blocked {len(newly_blocked)} IP(s) exceeding > 5 malicious exploits / 15m.
 
 Blocked Client IPs:
 {"".join(ip_rows_txt)}
 
 Total Blocked IPs in Coraza WAF: {len(cfg['blocked_ips'])}
-Management UI: http://10.0.10.15:8080
 """
+        send_ses_email(subject, html_body, text_body)
 
-    send_ses_email(subject, html_body, text_body)
     return newly_blocked
 
 
 if __name__ == "__main__":
     execute_auto_blocking()
+

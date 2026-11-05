@@ -50,16 +50,150 @@ type BlockedIPDetail struct {
 	BlockedAt     string   `json:"blocked_at"`
 }
 
+type TempRateLimitInfo struct {
+	IP              string `json:"ip"`
+	LimitedAt       string `json:"limited_at"`
+	LiftAt          string `json:"lift_at"`
+	CooldownSeconds int    `json:"cooldown_seconds"`
+	RequestCount15m int    `json:"request_count_15m"`
+	Reason          string `json:"reason"`
+}
+
 type WAFConfig struct {
-	EngineMode       string            `json:"engine_mode"`        // "On", "DetectionOnly", "Off"
-	ParanoiaLevel    int               `json:"paranoia_level"`     // 1..4
-	EnableFullCRS    bool              `json:"enable_full_crs"`    // Include full @owasp_crs/*.conf
-	BlockedIPs       []string          `json:"blocked_ips"`        // IP/CIDR blocklist
-	AllowedIPs       []string          `json:"allowed_ips"`        // IP/CIDR allowlist
-	RuleGroups       []RuleGroupConfig `json:"rule_groups"`        // Toggleable OWASP Top 10 rule groups
-	CustomSecRules   string            `json:"custom_sec_rules"`   // User-defined native SecLang rules
-	BlockedIPDetails []BlockedIPDetail `json:"blocked_ip_details,omitempty"` // Enriched threat metadata for blocked IPs
-	UpdatedAt        string            `json:"updated_at"`
+	EngineMode           string              `json:"engine_mode"`        // "On", "DetectionOnly", "Off"
+	ParanoiaLevel        int                 `json:"paranoia_level"`     // 1..4
+	EnableFullCRS        bool                `json:"enable_full_crs"`    // Include full @owasp_crs/*.conf
+	BlockedIPs           []string            `json:"blocked_ips"`        // IP/CIDR blocklist
+	AllowedIPs           []string            `json:"allowed_ips"`        // IP/CIDR allowlist
+	RuleGroups           []RuleGroupConfig   `json:"rule_groups"`        // Toggleable OWASP Top 10 rule groups
+	CustomSecRules       string              `json:"custom_sec_rules"`   // User-defined native SecLang rules
+	BlockedIPDetails     []BlockedIPDetail   `json:"blocked_ip_details,omitempty"` // Enriched threat metadata for blocked IPs
+	TempRateLimits       []TempRateLimitInfo `json:"temp_rate_limits,omitempty"`
+	RateLimitMaxRequests int                 `json:"rate_limit_max_requests,omitempty"`
+	RateLimitWindowMin   int                 `json:"rate_limit_window_min,omitempty"`
+	RateLimitCooldownMin int                 `json:"rate_limit_cooldown_min,omitempty"`
+	UpdatedAt            string              `json:"updated_at"`
+}
+
+type ClientRateLimiter struct {
+	mu          sync.Mutex
+	maxRequests int
+	window      time.Duration
+	cooldown    time.Duration
+	requests    map[string][]time.Time
+	cooldowns   map[string]time.Time
+	limitedAt   map[string]time.Time
+	counts      map[string]int
+}
+
+func newClientRateLimiter(maxReqs int, win, cool time.Duration) *ClientRateLimiter {
+	return &ClientRateLimiter{
+		maxRequests: maxReqs,
+		window:      win,
+		cooldown:    cool,
+		requests:    make(map[string][]time.Time),
+		cooldowns:   make(map[string]time.Time),
+		limitedAt:   make(map[string]time.Time),
+		counts:      make(map[string]int),
+	}
+}
+
+func (rl *ClientRateLimiter) CheckAndRecord(ip string) (bool, int, string) {
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+
+	now := time.Now().UTC()
+
+	// 1. Check if currently in cooldown
+	if liftAt, ok := rl.cooldowns[ip]; ok {
+		if now.Before(liftAt) {
+			remSec := int(liftAt.Sub(now).Seconds()) + 1
+			return true, remSec, fmt.Sprintf("Rate limit cooldown active (exceeded %d requests in %v). Auto-lifts in %ds.", rl.maxRequests, rl.window, remSec)
+		}
+		// Expired cooldown: automatically lift
+		delete(rl.cooldowns, ip)
+		delete(rl.limitedAt, ip)
+		delete(rl.counts, ip)
+		delete(rl.requests, ip)
+	}
+
+	// 2. Filter requests within sliding window
+	cutoff := now.Add(-rl.window)
+	reqs := rl.requests[ip]
+	valid := reqs[:0]
+	for _, t := range reqs {
+		if t.After(cutoff) {
+			valid = append(valid, t)
+		}
+	}
+	valid = append(valid, now)
+	rl.requests[ip] = valid
+
+	// 3. Exceeded threshold (> 50 req in 15m)
+	if len(valid) > rl.maxRequests {
+		liftAt := now.Add(rl.cooldown)
+		rl.cooldowns[ip] = liftAt
+		rl.limitedAt[ip] = now
+		rl.counts[ip] = len(valid)
+		remSec := int(rl.cooldown.Seconds())
+		return true, remSec, fmt.Sprintf("Exceeded rate limit (%d requests in %v baseline). Temporary %v cooldown applied.", len(valid), rl.window, rl.cooldown)
+	}
+
+	return false, 0, ""
+}
+
+func (rl *ClientRateLimiter) Lift(ip string) {
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+	delete(rl.cooldowns, ip)
+	delete(rl.limitedAt, ip)
+	delete(rl.counts, ip)
+	delete(rl.requests, ip)
+}
+
+func (rl *ClientRateLimiter) GetActiveLimits() []TempRateLimitInfo {
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+
+	now := time.Now().UTC()
+	var list []TempRateLimitInfo
+	for ip, liftAt := range rl.cooldowns {
+		if now.Before(liftAt) {
+			remSec := int(liftAt.Sub(now).Seconds())
+			list = append(list, TempRateLimitInfo{
+				IP:              ip,
+				LimitedAt:       rl.limitedAt[ip].Format(time.RFC3339),
+				LiftAt:          liftAt.Format(time.RFC3339),
+				CooldownSeconds: remSec,
+				RequestCount15m: rl.counts[ip],
+				Reason:          fmt.Sprintf("Rate limit exceeded (%d req/15m). Temporary 5-minute cool-down active (%ds remaining).", rl.counts[ip], remSec),
+			})
+		}
+	}
+	return list
+}
+
+func (rl *ClientRateLimiter) SyncExternalLimits(limits []TempRateLimitInfo) {
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+
+	now := time.Now().UTC()
+	for _, lim := range limits {
+		if lim.IP == "" {
+			continue
+		}
+		if liftAt, err := time.Parse(time.RFC3339, lim.LiftAt); err == nil {
+			if now.Before(liftAt) {
+				rl.cooldowns[lim.IP] = liftAt
+				if limAt, err2 := time.Parse(time.RFC3339, lim.LimitedAt); err2 == nil {
+					rl.limitedAt[lim.IP] = limAt
+				} else {
+					rl.limitedAt[lim.IP] = now
+				}
+				rl.counts[lim.IP] = lim.RequestCount15m
+			}
+		}
+	}
 }
 
 type WAFAuditEvent struct {
@@ -68,7 +202,7 @@ type WAFAuditEvent struct {
 	Shipper       string   `json:"shipper"`
 	Engine        string   `json:"engine"`
 	TransactionID string   `json:"transaction_id"`
-	Action        string   `json:"action"` // "blocked", "detected", "allowed"
+	Action        string   `json:"action"` // "blocked", "detected", "allowed", "rate_limited"
 	Interrupted   bool     `json:"interrupted"`
 	Status        int      `json:"status"`
 	ClientIP      string   `json:"client_ip"`
@@ -101,6 +235,7 @@ var (
 	logMu          sync.Mutex
 	recentEvents   []WAFAuditEvent
 	recentEventsMu sync.RWMutex
+	rateLimiter    = newClientRateLimiter(50, 15*time.Minute, 5*time.Minute)
 
 	totalReqs    atomic.Uint64
 	blockedReqs  atomic.Uint64
@@ -221,18 +356,37 @@ SecRule ARGS|ARGS_NAMES|REQUEST_URI|REQUEST_BODY "@rx (?i)(?:union\s+(?:all\s+)?
 
 func defaultConfig() WAFConfig {
 	return WAFConfig{
-		EngineMode:    "On",
-		ParanoiaLevel: 1,
-		EnableFullCRS: false,
-		BlockedIPs:    []string{},
-		AllowedIPs:    []string{},
-		RuleGroups:    defaultRuleGroups(),
+		EngineMode:           "On",
+		ParanoiaLevel:        1,
+		EnableFullCRS:        false,
+		BlockedIPs:           []string{},
+		AllowedIPs:           []string{},
+		RuleGroups:           defaultRuleGroups(),
+		RateLimitMaxRequests: 50,
+		RateLimitWindowMin:   15,
+		RateLimitCooldownMin: 5,
 		CustomSecRules: `# Custom Native Coraza SecLang Rules for example.com
 # Example: Block specific custom header or path
 SecRule REQUEST_HEADERS:X-Attack-Test "@streq blockme" "id:100001,phase:1,deny,status:403,log,msg:'Custom SecRule 100001: Blocked X-Attack-Test Header',tag:'CUSTOM_WAF_RULE',severity:'ERROR'"
 `,
 		UpdatedAt: time.Now().UTC().Format(time.RFC3339),
 	}
+}
+
+func isPrivateOrInternalIP(ipStr string) bool {
+	ipStr = strings.TrimSpace(ipStr)
+	if ipStr == "" {
+		return true
+	}
+	ip := net.ParseIP(ipStr)
+	if ip == nil {
+		return false
+	}
+	return ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsUnspecified()
+}
+
+func isProtectedUserIP(ipStr string) bool {
+	return strings.HasPrefix(strings.TrimSpace(ipStr), "172.59.")
 }
 
 func buildFullSecLangDirectives(cfg WAFConfig) string {
@@ -258,17 +412,17 @@ func buildFullSecLangDirectives(cfg WAFConfig) string {
 		}
 	}
 
-	// 2. IP Blocklist
+	// 2. IP Blocklist (Rule 100020: ONLY for verified malicious exploit payload attackers)
 	if len(cfg.BlockedIPs) > 0 {
 		clean := []string{}
 		for _, ip := range cfg.BlockedIPs {
 			ip = strings.TrimSpace(ip)
-			if ip != "" {
+			if ip != "" && !isPrivateOrInternalIP(ip) && !isProtectedUserIP(ip) {
 				clean = append(clean, ip)
 			}
 		}
 		if len(clean) > 0 {
-			b.WriteString(fmt.Sprintf("SecRule REMOTE_ADDR \"@ipMatch %s\" \"id:100020,phase:1,deny,status:403,log,msg:'Coraza IP Blocklist: Blocked Client IP',tag:'IP_BLOCKLIST',severity:'CRITICAL'\"\n", strings.Join(clean, ",")))
+			b.WriteString(fmt.Sprintf("SecRule REMOTE_ADDR \"@ipMatch %s\" \"id:100020,phase:1,deny,status:403,log,msg:'Coraza IP Blocklist: Malicious Exploit Payload Detected',tag:'IP_BLOCKLIST',severity:'CRITICAL'\"\n", strings.Join(clean, ",")))
 		}
 	}
 
@@ -316,6 +470,29 @@ func loadOrInitConfig() error {
 		cfg = defaultConfig()
 	}
 
+	if cfg.RateLimitMaxRequests <= 0 {
+		cfg.RateLimitMaxRequests = 50
+	}
+	if cfg.RateLimitWindowMin <= 0 {
+		cfg.RateLimitWindowMin = 15
+	}
+	if cfg.RateLimitCooldownMin <= 0 {
+		cfg.RateLimitCooldownMin = 5
+	}
+	if len(cfg.TempRateLimits) > 0 {
+		rateLimiter.SyncExternalLimits(cfg.TempRateLimits)
+	}
+
+	// Sanitize any blocked IPs
+	var cleanBlocked []string
+	for _, ip := range cfg.BlockedIPs {
+		ip = strings.TrimSpace(ip)
+		if ip != "" && !isPrivateOrInternalIP(ip) && !isProtectedUserIP(ip) {
+			cleanBlocked = append(cleanBlocked, ip)
+		}
+	}
+	cfg.BlockedIPs = cleanBlocked
+
 	w, err := compileWAF(cfg)
 	if err != nil {
 		return err
@@ -357,8 +534,10 @@ func extractClientIP(r *http.Request) string {
 
 func categorizeRule(ruleID int, tags []string, msg string) (string, string, string) {
 	switch {
+	case ruleID == 100030:
+		return "Rate Limit Exceeded (HTTP 429)", "A04:2021-Insecure Design", "MEDIUM"
 	case ruleID == 100020:
-		return "IP Blocklist", "A01:2021-Broken Access Control", "CRITICAL"
+		return "IP Blocklist (Malicious Exploit)", "A01:2021-Broken Access Control", "CRITICAL"
 	case ruleID >= 913000 && ruleID < 914000:
 		return "Scanner / Bot Detection", "A05:2021-Security Misconfiguration", "HIGH"
 	case ruleID >= 920000 && ruleID < 922000:
@@ -494,6 +673,66 @@ func main() {
 		start := time.Now()
 		totalReqs.Add(1)
 		clientIP := extractClientIP(r)
+
+		// 1. Rate Limiting check (HTTP 429) for non-internal traffic
+		// Baseline window: 15 minutes, threshold: >50 req/15m, cooldown: 5 minutes auto-lifted
+		if !isPrivateOrInternalIP(clientIP) {
+			isAllowlisted := false
+			configMu.RLock()
+			for _, aip := range currentConfig.AllowedIPs {
+				if strings.TrimSpace(aip) == clientIP {
+					isAllowlisted = true
+					break
+				}
+			}
+			configMu.RUnlock()
+
+			if !isAllowlisted {
+				limited, retryAfter, reason := rateLimiter.CheckAndRecord(clientIP)
+				if limited {
+					w.Header().Set("Content-Type", "application/json")
+					w.Header().Set("Retry-After", fmt.Sprintf("%d", retryAfter))
+					w.Header().Set("X-WAF-Engine", "Coraza-v3")
+					w.Header().Set("X-WAF-Rule-ID", "100030")
+					w.WriteHeader(http.StatusTooManyRequests)
+					resp := map[string]interface{}{
+						"error":               "Too Many Requests - Rate Limit Exceeded",
+						"status":              429,
+						"rule_id":             100030,
+						"rule_message":        reason,
+						"retry_after_seconds": retryAfter,
+						"threshold":           "50 requests per 15-minute baseline window",
+						"cooldown_duration":   "5 minutes (auto-lifted)",
+					}
+					_ = json.NewEncoder(w).Encode(resp)
+					recordAuditEvent(WAFAuditEvent{
+						Timestamp:     time.Now().UTC().Format(time.RFC3339),
+						App:           "coraza-waf",
+						Shipper:       "sidecar",
+						Engine:        "Coraza WAF v3 (Rate Limiter)",
+						TransactionID: fmt.Sprintf("rl-%d", time.Now().UnixNano()),
+						Action:        "rate_limited",
+						Interrupted:   true,
+						Status:        http.StatusTooManyRequests,
+						ClientIP:      clientIP,
+						RequestMethod: r.Method,
+						RequestURI:    r.URL.RequestURI(),
+						Host:          r.Host,
+						UserAgent:     r.UserAgent(),
+						RuleID:        100030,
+						RuleIDs:       []int{100030},
+						RuleMsg:       reason,
+						OWASPCategory: "Rate Limit Exceeded (HTTP 429)",
+						OWASPTop10:    "A04:2021-Insecure Design",
+						Severity:      "MEDIUM",
+						MatchedData:   fmt.Sprintf("ClientIP=%s; RetryAfter=%ds", clientIP, retryAfter),
+						LatencyMs:     float64(time.Since(start).Microseconds()) / 1000.0,
+					})
+					return
+				}
+			}
+		}
+
 		wafPtr := activeWAF.Load()
 		if wafPtr == nil {
 			proxy.ServeHTTP(w, r)
@@ -587,6 +826,8 @@ func main() {
 		reloadTs := lastReload
 		configMu.RUnlock()
 
+		cfg.TempRateLimits = rateLimiter.GetActiveLimits()
+
 		recentEventsMu.RLock()
 		evs := make([]WAFAuditEvent, len(recentEvents))
 		copy(evs, recentEvents)
@@ -620,6 +861,21 @@ func main() {
 		}
 		newCfg.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
 
+		// Sanitize BlockedIPs: remove private and protected user IPs
+		var cleanBlocked []string
+		for _, ip := range newCfg.BlockedIPs {
+			ip = strings.TrimSpace(ip)
+			if ip != "" && !isPrivateOrInternalIP(ip) && !isProtectedUserIP(ip) {
+				cleanBlocked = append(cleanBlocked, ip)
+			}
+		}
+		newCfg.BlockedIPs = cleanBlocked
+
+		// Sync external temporary rate limits
+		if len(newCfg.TempRateLimits) > 0 {
+			rateLimiter.SyncExternalLimits(newCfg.TempRateLimits)
+		}
+
 		// Validate & Compile with native Coraza v3 compiler
 		newWAF, err := compileWAF(newCfg)
 		if err != nil {
@@ -644,6 +900,53 @@ func main() {
 			"message":          "Coraza v3 SecLang rules validated and hot-reloaded with zero downtime.",
 			"updated_at":       newCfg.UpdatedAt,
 			"compiled_seclang": buildFullSecLangDirectives(newCfg),
+		})
+	})
+	adminMux.HandleFunc("/api/unblock", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		var req struct {
+			IP string `json:"ip"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		ip := strings.TrimSpace(req.IP)
+		if ip != "" {
+			rateLimiter.Lift(ip)
+			configMu.Lock()
+			var newBlocked []string
+			for _, b := range currentConfig.BlockedIPs {
+				if b != ip {
+					newBlocked = append(newBlocked, b)
+				}
+			}
+			currentConfig.BlockedIPs = newBlocked
+			var newDetails []BlockedIPDetail
+			for _, d := range currentConfig.BlockedIPDetails {
+				if d.IP != ip {
+					newDetails = append(newDetails, d)
+				}
+			}
+			currentConfig.BlockedIPDetails = newDetails
+			currentConfig.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+			newWAF, err := compileWAF(currentConfig)
+			if err == nil {
+				activeWAF.Store(&newWAF)
+				lastReload = currentConfig.UpdatedAt
+				saveConfigToDisk(currentConfig)
+			}
+			configMu.Unlock()
+			log.Printf("[WAF API] Successfully unblocked client IP %s and lifted rate-limit cooldown", ip)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]string{
+			"status":  "unblocked",
+			"ip":      ip,
+			"message": fmt.Sprintf("Client IP %s unblocked and rate-limit cooldown lifted.", ip),
 		})
 	})
 	adminMux.HandleFunc("/api/simulate", func(w http.ResponseWriter, r *http.Request) {

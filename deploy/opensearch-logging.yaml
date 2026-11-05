@@ -271,11 +271,8 @@ kind: Service
 metadata:
   name: opensearch-dashboards-service
   namespace: logging
-  annotations:
-    metallb.universe.tf/address-pool: defense-ip-pool
 spec:
   type: LoadBalancer
-  loadBalancerIP: 10.0.20.50
   selector:
     app: opensearch-dashboards
   ports:
@@ -1302,155 +1299,213 @@ data:
 
     def is_private_ip(ip_str):
         try:
-            ip = ipaddress.ip_address(ip_str.strip())
+            cleaned = ip_str.strip()
+            # Explicitly protect operator / user IP and RFC1918 subnets
+            if cleaned == "172.59.218.200" or cleaned.startswith("172.59."):
+                return True
+            ip = ipaddress.ip_address(cleaned)
             return ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_multicast or ip.is_reserved
         except Exception:
             return True
 
+    temp_rate_limited_ips = {}  # ip -> {"limited_at": datetime, "lift_at": datetime, "count": count}
+
     def auto_block_waf_attackers_loop():
-        """Continuously checks OpenSearch logs for any client IP exceeding >5 attacks in 15m and permanently blocks it in Coraza WAF."""
-        print("[auto_block_waf] Starting automated WAF attacker IP blocker loop (evaluating every 60s)...", flush=True)
+        """
+        Continuously evaluates OpenSearch logs across a 15-minute sliding baseline window.
+        
+        Rules:
+        1. Rate limit threshold: Only rate limit on rates exceeding > 50 requests per client within 15m.
+        2. Permanent Block (Rule 100020): ONLY if a MALICIOUS PAYLOAD is detected (OWASP CRS exploit rules, >5 attacks in 15m).
+        3. Temporary Rate Limit: If rate > 50 req/15m WITHOUT malicious payload, apply a 5-minute temporary rate limit.
+           The temporary rate limit is automatically lifted after 5 minutes.
+        """
+        print("[auto_block_waf] Starting automated WAF attacker IP blocker & rate-limit loop (evaluating every 60s)...", flush=True)
         time.sleep(15)
         while True:
             try:
-                q = {
+                now_utc = datetime.datetime.now(datetime.timezone.utc)
+
+                # 1. Lift expired temporary rate limits (after 5 minutes)
+                expired_ips = [ip for ip, data in list(temp_rate_limited_ips.items()) if now_utc >= data["lift_at"]]
+                for ip in expired_ips:
+                    del temp_rate_limited_ips[ip]
+                    print(f"[auto_block_waf] Automatically lifted 5-minute temporary rate limit for IP: {ip}", flush=True)
+
+                # 2. Query OpenSearch for genuine MALICIOUS PAYLOADS in the last 15 minutes (now-15m)
+                # Exclude existing blocklist drops (rule 100020) and rate limit 429s (rule 100030)
+                q_malicious = {
                     "size": 0,
                     "query": {
                         "bool": {
                             "filter": [
-                                {"range": {"@timestamp": {"gte": "now-24h"}}}
-                            ],
-                            "should": [
+                                {"range": {"@timestamp": {"gte": "now-15m"}}},
                                 {"term": {"action.keyword": "blocked"}},
-                                {"terms": {"status": [401, 403, 404, 429]}}
+                                {"exists": {"field": "owasp_category.keyword"}}
                             ],
-                            "minimum_should_match": 1
+                            "must_not": [
+                                {"terms": {"rule_id": [100010, 100020, 100030]}}
+                            ]
                         }
                     },
                     "aggs": {
                         "by_ip": {
                             "terms": {"field": "client_ip.keyword", "size": 100},
                             "aggs": {
-                                "over_time": {
-                                    "date_histogram": {
-                                        "field": "@timestamp",
-                                        "fixed_interval": "15m"
-                                    }
-                                },
-                                "max_bucket": {
-                                    "max_bucket": {
-                                        "buckets_path": "over_time>_count"
-                                    }
-                                },
-                                "top_paths": {
-                                    "terms": {"field": "request_uri.keyword", "size": 5}
-                                },
-                                "classes": {
-                                    "terms": {"field": "owasp_category.keyword", "size": 5}
-                                }
+                                "classes": {"terms": {"field": "owasp_category.keyword", "size": 5}},
+                                "paths": {"terms": {"field": "request_uri.keyword", "size": 5}}
                             }
                         }
                     }
                 }
-                req_os = urllib.request.Request(
+                req_mal = urllib.request.Request(
                     f"{OS_URL}/logs-waf-*,logs-network-*/_search",
-                    data=json.dumps(q).encode(),
+                    data=json.dumps(q_malicious).encode(),
                     headers={"Content-Type": "application/json"},
                     method="POST"
                 )
-                with urllib.request.urlopen(req_os, timeout=8) as r:
-                    res = json.loads(r.read().decode())
-                buckets = res.get("aggregations", {}).get("by_ip", {}).get("buckets", [])
+                with urllib.request.urlopen(req_mal, timeout=8) as r_mal:
+                    res_mal = json.loads(r_mal.read().decode())
+                mal_buckets = res_mal.get("aggregations", {}).get("by_ip", {}).get("buckets", [])
 
-                offenders = []
-                for b in buckets:
+                malicious_attackers = {}
+                for b in mal_buckets:
                     ip = b["key"].strip()
                     if not ip or is_private_ip(ip):
                         continue
-                    peak_15m = int(b.get("max_bucket", {}).get("value", 0) or 0)
                     tot = b.get("doc_count", 0)
-                    if peak_15m > 5 or tot > 5:
-                        paths = [p["key"] for p in b.get("top_paths", {}).get("buckets", [])]
-                        classes = [c["key"] for c in b.get("classes", {}).get("buckets", [])]
-                        offenders.append({"ip": ip, "peak_15m": peak_15m, "total": tot, "paths": paths, "classes": classes})
+                    classes = [c["key"] for c in b.get("classes", {}).get("buckets", [])]
+                    paths = [p["key"] for p in b.get("paths", {}).get("buckets", [])]
+                    malicious_attackers[ip] = {"count": tot, "classes": classes, "paths": paths}
 
-                if offenders:
-                    req_st = urllib.request.Request(f"{WAF_ADMIN_URL}/api/status", headers={"Accept": "application/json"})
-                    with urllib.request.urlopen(req_st, timeout=6) as r_st:
-                        waf_data = json.loads(r_st.read().decode())
-                    cfg = waf_data.get("config", {})
-                    existing_blocked = set(cfg.get("blocked_ips", []))
-                    new_blocked = []
+                # 3. Query OpenSearch for High-Rate Traffic (>50 requests within 15-minute baseline window)
+                q_rate = {
+                    "size": 0,
+                    "query": {
+                        "range": {"@timestamp": {"gte": "now-15m"}}
+                    },
+                    "aggs": {
+                        "by_ip": {
+                            "terms": {"field": "client_ip.keyword", "size": 100, "min_doc_count": 51}
+                        }
+                    }
+                }
+                req_rate = urllib.request.Request(
+                    f"{OS_URL}/logs-waf-*,logs-network-*/_search",
+                    data=json.dumps(q_rate).encode(),
+                    headers={"Content-Type": "application/json"},
+                    method="POST"
+                )
+                with urllib.request.urlopen(req_rate, timeout=8) as r_rate:
+                    res_rate = json.loads(r_rate.read().decode())
+                rate_buckets = res_rate.get("aggregations", {}).get("by_ip", {}).get("buckets", [])
 
-                    for off in offenders:
-                        ip = off["ip"]
-                        if ip not in existing_blocked:
-                            new_blocked.append(off)
-                            existing_blocked.add(ip)
+                # Process high-rate clients without malicious payloads
+                for b in rate_buckets:
+                    ip = b["key"].strip()
+                    if not ip or is_private_ip(ip):
+                        continue
+                    count = b.get("doc_count", 0)
+                    if ip not in malicious_attackers:
+                        # Clean traffic exceeding rate limit (>50 req/15m) -> Temporary 5-minute cooldown!
+                        if ip not in temp_rate_limited_ips:
+                            lift_time = now_utc + datetime.timedelta(minutes=5)
+                            temp_rate_limited_ips[ip] = {
+                                "limited_at": now_utc,
+                                "lift_at": lift_time,
+                                "count": count
+                            }
+                            print(f"[auto_block_waf] Clean IP {ip} exceeded 50 req/15m ({count} reqs) without malicious payload. Applied temporary rate limit until {lift_time.isoformat()}", flush=True)
 
-                    # Build enriched metadata details for all blocked IPs
-                    details_map = {d["ip"]: d for d in cfg.get("blocked_ip_details", []) if d.get("ip")}
-                    off_map = {off["ip"]: off for off in offenders}
-                    all_details = []
-                    for ip in sorted(list(existing_blocked)):
-                        off_info = off_map.get(ip, {})
-                        if ip in details_map and not off_info:
-                            all_details.append(details_map[ip])
-                        else:
-                            # Enrich IP with sample payload and GeoIP from OpenSearch
-                            q_s = {"size": 1, "query": {"term": {"client_ip.keyword": ip}}, "sort": [{"@timestamp": {"order": "desc"}}]}
-                            req_s = urllib.request.Request(f"{OS_URL}/logs-waf-*,logs-network-*/_search", data=json.dumps(q_s).encode(), headers={"Content-Type": "application/json"}, method="POST")
-                            try:
-                                with urllib.request.urlopen(req_s, timeout=4) as r_s:
-                                    s_hits = json.loads(r_s.read().decode()).get("hits", {}).get("hits", [])
-                                src_doc = s_hits[0]["_source"] if s_hits else {}
-                            except Exception:
-                                src_doc = {}
-                            country = src_doc.get("geoip", {}).get("country_name") or "External WAN"
-                            city = src_doc.get("geoip", {}).get("city_name") or "Unknown"
-                            country_iso = src_doc.get("geoip", {}).get("country_iso_code") or ""
-                            matched = src_doc.get("matched_data") or src_doc.get("request_uri") or (off_info.get("paths") and off_info["paths"][0]) or "-"
-                            classes = off_info.get("classes", [])
-                            if not classes and src_doc.get("owasp_category"):
-                                classes = [src_doc.get("owasp_category")]
-                            classes_str = ", ".join(classes) if classes else "Automated Exploit / Scanner Probing"
-                            pk = off_info.get("peak_15m") or 5
+                # 4. Fetch current WAF configuration
+                req_st = urllib.request.Request(f"{WAF_ADMIN_URL}/api/status", headers={"Accept": "application/json"})
+                with urllib.request.urlopen(req_st, timeout=6) as r_st:
+                    waf_data = json.loads(r_st.read().decode())
+                cfg = waf_data.get("config", {})
+                existing_blocked = set(cfg.get("blocked_ips", []))
 
-                            all_details.append({
-                                "ip": ip,
-                                "threshold": f"> 5 req / 15m (Peak: {pk} / 15m)",
-                                "reasoning": f"Exceeded attack threshold of > 5 attacks in 15m ({pk} peak). Attack classes: {classes_str}.",
-                                "attack_vector": classes[0] if classes else "Automated Exploit / Scanner Probing",
-                                "sample_payload": str(matched)[:120],
-                                "top_paths": off_info.get("paths") or ([src_doc.get("request_uri")] if src_doc.get("request_uri") else ["/"]),
-                                "country": country,
-                                "city": city,
-                                "country_iso": country_iso,
-                                "ioc_reputation": "AlienVault OTX Monitored | Exploit Prober",
-                                "blocked_at": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-                            })
+                # PURGE wrongful blocks: remove private IPs and 172.59.* user IP
+                sanitized_blocked = set()
+                for b_ip in existing_blocked:
+                    if is_private_ip(b_ip) or b_ip.startswith("172.59."):
+                        print(f"[auto_block_waf] Purging whitelisted/user IP from permanent blocklist: {b_ip}", flush=True)
+                    else:
+                        sanitized_blocked.add(b_ip)
 
-                    needs_update = len(new_blocked) > 0 or len(cfg.get("blocked_ip_details", [])) < len(existing_blocked)
-                    if needs_update:
-                        cfg["blocked_ips"] = sorted(list(existing_blocked))
-                        cfg["blocked_ip_details"] = all_details
-                        cfg["updated_at"] = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-                        req_up = urllib.request.Request(
-                            f"{WAF_ADMIN_URL}/api/config",
-                            data=json.dumps(cfg).encode(),
-                            headers={"Content-Type": "application/json"},
-                            method="POST"
-                        )
-                        with urllib.request.urlopen(req_up, timeout=8) as r_up:
-                            up_res = json.loads(r_up.read().decode())
-                        if up_res.get("status") == "reloaded":
-                            print(f"[auto_block_waf] Permanently blocked {len(new_blocked)} new IP(s) in Coraza WAF: {[b['ip'] for b in new_blocked]}", flush=True)
-                            new_ip_list_str = ", ".join([f"{b['ip']} (Peak: {b['peak_15m']}/15m)" for b in new_blocked])
-                            subject = f"[CRITICAL - P1] Hypatian Systems Research Security: {len(new_blocked)} Attacking IP(s) Permanently Blocked by Coraza WAF"
-                            html = f"""<div style='font-family:sans-serif;padding:20px;'><h2 style='color:#dc2626;'>[CRITICAL - P1] Coraza WAF Automated IP Defense</h2><p>The automated threat defense engine moved <strong>{len(new_blocked)}</strong> IP(s) to <strong>PERMANENTLY BLOCKED</strong> state in Coraza WAF after exceeding attack threshold (&gt;5 attacks in 15m):</p><p><code>{new_ip_list_str}</code></p></div>"""
-                            txt = f"[CRITICAL - P1] Coraza WAF Automated IP Defense\nPermanently blocked {len(new_blocked)} IP(s): {new_ip_list_str}\n"
-                            if new_blocked:
-                                send_ses_email(subject, html, txt)
+                # 5. Evaluate PERMANENT BLOCKS: ONLY for malicious payload attackers (>5 malicious exploit attempts in 15m)
+                new_permanent = []
+                for ip, m_info in malicious_attackers.items():
+                    if m_info["count"] > 5 and ip not in sanitized_blocked:
+                        sanitized_blocked.add(ip)
+                        new_permanent.append({"ip": ip, **m_info})
+
+                # Rebuild details
+                details_map = {d["ip"]: d for d in cfg.get("blocked_ip_details", []) if d.get("ip") in sanitized_blocked}
+                all_details = []
+                for ip in sorted(list(sanitized_blocked)):
+                    if ip in details_map:
+                        all_details.append(details_map[ip])
+                    else:
+                        m_info = malicious_attackers.get(ip, {})
+                        classes = m_info.get("classes", ["Automated Exploit / Malicious Payload"])
+                        all_details.append({
+                            "ip": ip,
+                            "threshold": "Malicious Payload Detected (>5 exploits in 15m)",
+                            "reasoning": f"Exceeded malicious exploit threshold. Attack classes: {', '.join(classes)}.",
+                            "attack_vector": classes[0] if classes else "Malicious Payload Probe",
+                            "sample_payload": str(m_info.get("paths", ["-"]))[:120],
+                            "top_paths": m_info.get("paths", ["/"]),
+                            "country": "External WAN",
+                            "city": "Unknown",
+                            "country_iso": "",
+                            "ioc_reputation": "AlienVault OTX Monitored | Exploit Prober",
+                            "blocked_at": now_utc.strftime("%Y-%m-%dT%H:%M:%SZ")
+                        })
+
+                # Build temporary rate limit details
+                temp_details = []
+                for ip, t_info in temp_rate_limited_ips.items():
+                    remaining_sec = max(0, int((t_info["lift_at"] - now_utc).total_seconds()))
+                    temp_details.append({
+                        "ip": ip,
+                        "limited_at": t_info["limited_at"].strftime("%Y-%m-%dT%H:%M:%SZ"),
+                        "lift_at": t_info["lift_at"].strftime("%Y-%m-%dT%H:%M:%SZ"),
+                        "cooldown_seconds": remaining_sec,
+                        "request_count_15m": t_info["count"],
+                        "reason": f"Rate limit exceeded ({t_info['count']} requests in 15m baseline). Temporary 5-minute cool-down active."
+                    })
+
+                needs_update = (
+                    sanitized_blocked != existing_blocked or
+                    len(new_permanent) > 0 or
+                    cfg.get("temp_rate_limits", []) != temp_details
+                )
+
+                if needs_update:
+                    cfg["blocked_ips"] = sorted(list(sanitized_blocked))
+                    cfg["blocked_ip_details"] = all_details
+                    cfg["temp_rate_limits"] = temp_details
+                    cfg["rate_limit_max_requests"] = 50
+                    cfg["rate_limit_window_min"] = 15
+                    cfg["rate_limit_cooldown_min"] = 5
+                    cfg["updated_at"] = now_utc.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+                    req_up = urllib.request.Request(
+                        f"{WAF_ADMIN_URL}/api/config",
+                        data=json.dumps(cfg).encode(),
+                        headers={"Content-Type": "application/json"},
+                        method="POST"
+                    )
+                    with urllib.request.urlopen(req_up, timeout=8) as r_up:
+                        up_res = json.loads(r_up.read().decode())
+                    if up_res.get("status") == "reloaded":
+                        if new_permanent:
+                            print(f"[auto_block_waf] Permanently blocked {len(new_permanent)} MALICIOUS IP(s) in Coraza WAF: {[b['ip'] for b in new_permanent]}", flush=True)
+                            new_ip_list_str = ", ".join([f"{b['ip']} (Exploits: {b['count']}/15m)" for b in new_permanent])
+                            subject = f"[CRITICAL - P1] Hypatian Systems Research Security: {len(new_permanent)} Malicious Attacker IP(s) Permanently Blocked by Coraza WAF"
+                            html = f"""<div style='font-family:sans-serif;padding:20px;'><h2 style='color:#dc2626;'>[CRITICAL - P1] Coraza WAF Malicious Attacker Defense</h2><p>The automated threat defense engine moved <strong>{len(new_permanent)}</strong> IP(s) to <strong>PERMANENTLY BLOCKED</strong> state in Coraza WAF after detecting malicious exploit payloads (&gt;5 exploits in 15m):</p><p><code>{new_ip_list_str}</code></p></div>"""
+                            txt = f"[CRITICAL - P1] Coraza WAF Malicious Attacker Defense\nPermanently blocked {len(new_permanent)} IP(s): {new_ip_list_str}\n"
+                            send_ses_email(subject, html, txt)
             except Exception as e:
                 print(f"[auto_block_waf_loop] error: {e}", flush=True)
             time.sleep(60)

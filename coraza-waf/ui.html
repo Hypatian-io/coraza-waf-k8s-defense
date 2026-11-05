@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Coraza WAF Console & SecLang Playground — example.com</title>
+  <title>Coraza WAF Console & SecLang Playground — Hypatian Systems Research</title>
   <style>
     :root {
       --bg: #0b0f19;
@@ -246,7 +246,7 @@
     <div class="brand">
       <div class="shield">🛡️</div>
       <div>
-        <h1>Coraza WAF v3 &amp; OWASP CRS Console — example.com</h1>
+        <h1>Coraza WAF v3 &amp; OWASP CRS Console — Hypatian Systems Research</h1>
         <p>Native Go Coraza SecLang Engine &bull; Fronting Public Traffic (`web-frontend` &amp; `api-backend`) &bull; Shipping to OpenSearch `logs-waf-*`</p>
       </div>
     </div>
@@ -339,7 +339,7 @@
           <div>
             <h2 style="margin:0;">🛡️ Permanently Blocked Attacker IPs &amp; Threat Intelligence Telemetry</h2>
             <p style="font-size:12.5px; color:var(--muted); margin:4px 0 0 0;">
-              Repeat attacking IPs exceeding <strong>&gt; 5 attacks in a 15-minute window</strong> are automatically moved to permanently blocked state. Enforced at ModSecurity Phase 1 via <code>SecRule REMOTE_ADDR "@ipMatch ..." (Rule 100020)</code>.
+              Attacking IPs with verified <strong>malicious payloads</strong> (&gt; 5 exploit attempts in 15m) are moved to permanently blocked state (Rule 100020, 403 Forbidden). High-rate traffic without exploits exceeding <strong>50 req / 15m</strong> is rate limited with a <strong>5-minute temporary cooldown</strong> (Rule 100030, HTTP 429).
             </p>
           </div>
           <div style="display:flex; gap:10px;">
@@ -354,16 +354,40 @@
             <div class="stat-val" id="statBlockedCount" style="color:#f87171;">0</div>
           </div>
           <div class="stat-card" style="background:#131d31; border-color:#1e3a8a;">
-            <div class="stat-label">Automated Threshold</div>
-            <div class="stat-val" style="color:#fbbf24; font-size:18px; margin-top:8px;">&gt; 5 req / 15m</div>
+            <div class="stat-label">Rate Limit Threshold</div>
+            <div class="stat-val" style="color:#fbbf24; font-size:18px; margin-top:8px;">&gt; 50 req / 15m</div>
           </div>
           <div class="stat-card" style="background:#131d31; border-color:#1e3a8a;">
-            <div class="stat-label">Enforcement Rule</div>
+            <div class="stat-label">Temporary Cooldown</div>
+            <div class="stat-val" style="color:#38bdf8; font-size:18px; margin-top:8px;">5 min (Auto-lifted)</div>
+          </div>
+          <div class="stat-card" style="background:#131d31; border-color:#1e3a8a;">
+            <div class="stat-label">Permanent Exploit Rule</div>
             <div class="stat-val" style="color:#60a5fa; font-size:18px; margin-top:8px;">SecRule 100020</div>
           </div>
           <div class="stat-card" style="background:#131d31; border-color:#1e3a8a;">
             <div class="stat-label">Threat Intel Feed</div>
             <div class="stat-val" style="color:#34d399; font-size:18px; margin-top:8px;">AlienVault OTX (609 IOCs)</div>
+          </div>
+        </div>
+
+        <!-- TEMPORARY RATE LIMITS TABLE -->
+        <div id="tempRateLimitsSection" style="margin-bottom:24px; display:none; background:#0f172a; padding:14px; border-radius:8px; border:1px solid #1e3a8a;">
+          <h3 style="margin:0 0 8px 0; font-size:14px; color:#38bdf8;">⏱️ Active Temporary Rate Limits (5-Minute Cooldown — HTTP 429)</h3>
+          <div style="overflow-x:auto;">
+            <table>
+              <thead>
+                <tr>
+                  <th>Rate Limited IP</th>
+                  <th>Request Volume</th>
+                  <th>Cooldown Remaining</th>
+                  <th>Limited At</th>
+                  <th>Reason</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody id="tempRateLimitsBody"></tbody>
+            </table>
           </div>
         </div>
 
@@ -658,6 +682,26 @@
       document.getElementById('badgeBlockedCount').textContent = ips.length;
       document.getElementById('visibleBlockedCount').textContent = ips.length;
 
+      // Render Active Temporary Rate Limits
+      const tempLimits = currentCfg.temp_rate_limits || [];
+      const tempSec = document.getElementById('tempRateLimitsSection');
+      const tempTbody = document.getElementById('tempRateLimitsBody');
+      if (tempLimits.length > 0) {
+        tempSec.style.display = 'block';
+        tempTbody.innerHTML = tempLimits.map(t => `
+          <tr>
+            <td><strong style="color:#38bdf8; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:13px;">${escapeHtml(t.ip)}</strong></td>
+            <td><span style="color:#fbbf24; font-weight:700;">${t.request_count_15m || '>50'}</span> reqs / 15m</td>
+            <td><span class="pill pill-detected">${t.cooldown_seconds || 300}s remaining</span></td>
+            <td style="font-size:12px; color:var(--muted);">${escapeHtml(t.limited_at || '-')}</td>
+            <td style="font-size:12px;">${escapeHtml(t.reason || 'Exceeded 50 req/15m baseline.')}</td>
+            <td><button class="btn btn-outline btn-sm" onclick="unblockIP('${escapeHtml(t.ip)}')">⚡ Lift Cooldown</button></td>
+          </tr>
+        `).join('');
+      } else {
+        tempSec.style.display = 'none';
+      }
+
       if (!ips.length) {
         tbody.innerHTML = '<tr><td colspan="9" style="text-align:center; color:var(--muted); padding:24px;">No client IPs currently blocked in Coraza WAF.</td></tr>';
         return;
@@ -665,8 +709,8 @@
 
       tbody.innerHTML = ips.map(ip => {
         const meta = detailsMap[ip] || KNOWN_BLOCKED_METADATA[ip] || {
-          threshold: "> 5 req / 15m (Automated Defense)",
-          reasoning: "Exceeded attack threshold of > 5 attacks within a 15-minute sliding window",
+          threshold: "Malicious Payload (>5 exploits in 15m)",
+          reasoning: "Exceeded malicious payload threshold within a 15-minute sliding window",
           attack_vector: "Automated Exploit / Scanner Probing",
           sample_payload: "HTTP 403 / ModSecurity Dropped",
           top_paths: ["/"],
@@ -690,7 +734,7 @@
             </td>
             <td>
               <span style="display:inline-block; padding:2px 8px; border-radius:4px; font-size:11.5px; font-weight:700; background:rgba(239,68,68,0.15); color:#fca5a5; border:1px solid #ef4444;">
-                ${escapeHtml(meta.threshold || '> 5 req / 15m')}
+                ${escapeHtml(meta.threshold || 'Malicious Payload (>5 / 15m)')}
               </span>
             </td>
             <td>
@@ -742,25 +786,20 @@
     }
 
     async function unblockIP(ip) {
-      if (!confirm(`Are you sure you want to unblock client IP ${ip}? This will immediately hot-reload Coraza WAF without downtime.`)) {
+      if (!confirm(`Are you sure you want to unblock client IP ${ip}? This will immediately hot-reload Coraza WAF without downtime and lift any active rate-limit cooldown.`)) {
         return;
       }
-      if (!currentCfg) return;
-      currentCfg.blocked_ips = (currentCfg.blocked_ips || []).filter(item => item !== ip);
-      if (currentCfg.blocked_ip_details) {
-        currentCfg.blocked_ip_details = currentCfg.blocked_ip_details.filter(item => item.ip !== ip);
-      }
-      const res = await fetch('/api/config', {
+      const res = await fetch('/api/unblock', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify(currentCfg)
+        body: JSON.stringify({ip: ip})
       });
       const data = await res.json();
       if (!res.ok) {
         showBanner('❌ ' + (data.error || 'Failed to unblock IP'), true);
         return;
       }
-      showBanner(`✅ Successfully unblocked ${ip} and hot-reloaded Coraza WAF!`, false);
+      showBanner(`✅ Successfully unblocked ${ip} and lifted rate limits!`, false);
       await fetchStatus();
     }
 
