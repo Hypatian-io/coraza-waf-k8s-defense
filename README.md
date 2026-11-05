@@ -11,6 +11,19 @@
 [![Coraza WAF](https://img.shields.io/badge/Coraza_WAF-v3.2.1-00ADD8?logo=go&logoColor=white)](https://coraza.io/)
 [![OpenSearch](https://img.shields.io/badge/OpenSearch-v2.19.7-005EB8?logo=opensearch&logoColor=white)](https://opensearch.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Built with Gemini Antigravity CLI](https://img.shields.io/badge/Agentic_Engineering-Gemini_Antigravity_CLI-4285F4?logo=google&logoColor=white)](https://github.com/saadrana219/coraza-waf-k8s-defense)
+
+---
+
+---
+
+> ### 🤖 Engineering Note: Built & Deployed with Gemini Antigravity CLI
+> This entire defense architecture, live Kubernetes deployment, real-time threat analysis, and publication pipeline was engineered and orchestrated using the **Gemini Antigravity CLI** (`agy`). Antigravity CLI functioned as an autonomous pair programmer, security engineer, and site reliability automation engine across the entire stack lifecycle:
+> 
+> * **Cloud-Native Engineering**: Authored the pure Go Coraza WAF v3 reverse proxy with atomic pointer-swap hot-reloads, configured in-memory Fluent Bit log sidecars (`tmpfs`) with 5 MB self-truncation, and wrote the autonomous IP quarantine daemon.
+> * **Security Analytics & Alert Tuning**: Configured dotless OpenSearch index aliases (`logs_waf`, `logs_network`), Sigma detection rules, 14 multi-tier burst alerts, and AWS SES notification pipelines.
+> * **Automated Validation & Dashboards**: Executed automated exploit penetration testing, verified self-healing quarantine loops, and executed headless Chrome browser pipelines to capture and sanitize all 14 visual dashboards.
+> * **Infrastructure & Public Release**: Built the sanitized standalone GitHub repository, orchestrated AWS Route 53 DNS for `blog.hypatian.io`, managed Let's Encrypt TLS provisioning, and deployed this publication.
 
 ---
 
