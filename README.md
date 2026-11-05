@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/images/hypatian_logo_dark.png" alt="Hypatian Systems LLC" width="380" />
+  <img src="docs/images/hypatian_logo_dark.png" alt="Hypatian Systems Research" width="380" />
 </p>
 
 # Building an Autonomous Cloud-Native Defense Stack: Embedding Coraza WAF v3, OpenSearch Security Analytics, Real-Time GeoIP, and Automated Threat Response on Kubernetes
@@ -14,7 +14,7 @@
 
 ## 1. Introduction: The Ingress Defense Dilemma
 
-At **Hypatian Systems LLC**, our production Kubernetes cluster serves mission-critical web applications and APIs. Exposing these services to the public Internet invites relentless automated hostility. Within minutes of provisioning a public IP or DNS record, scanning botnets (`nuclei`, `masscan`, `nikto`), automated exploit frameworks, and credential stuffers begin probing web endpoints with directory traversal probes (`/etc/passwd`, `.env`, `.git`), webshell uploads (`eval-stdin.php`), and injection attacks (`' OR 1=1--`).
+At **Hypatian Systems Research**, our production Kubernetes cluster serves mission-critical web applications and APIs. Exposing these services to the public Internet invites relentless automated hostility. Within minutes of provisioning a public IP or DNS record, scanning botnets (`nuclei`, `masscan`, `nikto`), automated exploit frameworks, and credential stuffers begin probing web endpoints with directory traversal probes (`/etc/passwd`, `.env`, `.git`), webshell uploads (`eval-stdin.php`), and injection attacks (`' OR 1=1--`).
 
 ```
                 ┌────────────────────────────────────────────────────────┐
@@ -478,4 +478,4 @@ curl -i "http://<YOUR_INGRESS_IP>/"
 All manifests, Go source code, and scripts are open-source:
 👉 [**https://github.com/saadrana219/coraza-waf-k8s-defense**](https://github.com/saadrana219/coraza-waf-k8s-defense)
 
-*Published by the Hypatian Systems LLC Infrastructure & Security Engineering Team.*
+*Published by the Hypatian Systems Research Infrastructure & Security Engineering Team.*

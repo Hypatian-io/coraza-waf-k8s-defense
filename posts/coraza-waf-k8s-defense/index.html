@@ -3,12 +3,12 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Building an Autonomous Cloud-Native Defense Stack | Hypatian Systems LLC: Coraza WAF v3, OpenSearch & Kubernetes</title>
+  <title>Building an Autonomous Cloud-Native Defense Stack | Hypatian Systems Research: Coraza WAF v3, OpenSearch & Kubernetes</title>
   
   <!-- Primary Meta Tags -->
   <meta name="title" content="Building an Autonomous Cloud-Native Defense Stack on Kubernetes">
   <meta name="description" content="A complete, visual engineering guide to deploying Coraza WAF v3, OpenSearch Security Analytics, Real-Time GeoIP, and Automated Attacker IP Quarantine.">
-  <meta name="author" content="Hypatian Systems LLC">
+  <meta name="author" content="Hypatian Systems Research">
   <link rel="canonical" href="https://blog.hypatian.io/posts/coraza-waf-k8s-defense/">
   <link rel="icon" type="image/png" href="/favicon.png">
 
@@ -67,9 +67,9 @@
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-20 sm:h-22 flex items-center justify-between">
       <div class="flex items-center gap-4">
         <a href="/" class="flex items-center gap-3.5 group">
-          <img src="/images/hypatian_logo_dark.png" onerror="this.onerror=null; this.src='https://raw.githubusercontent.com/saadrana219/coraza-waf-k8s-defense/main/images/hypatian_logo_dark.png';" alt="Hypatian Systems LLC" class="h-12 sm:h-14 w-auto object-contain drop-shadow-[0_2px_12px_rgba(56,189,248,0.25)] group-hover:scale-105 transition-transform duration-200" />
+          <img src="/images/hypatian_logo_dark.png" onerror="this.onerror=null; this.src='https://raw.githubusercontent.com/saadrana219/coraza-waf-k8s-defense/main/images/hypatian_logo_dark.png';" alt="Hypatian Systems Research" class="h-12 sm:h-14 w-auto object-contain drop-shadow-[0_2px_12px_rgba(56,189,248,0.25)] group-hover:scale-105 transition-transform duration-200" />
           <div class="hidden sm:block border-l border-slate-800 pl-3">
-            <span class="font-bold text-white text-base">Hypatian Systems LLC</span>
+            <span class="font-bold text-white text-base">Hypatian Systems Research</span>
             <span class="block text-xs text-sky-400 font-mono">Autonomous Kubernetes Ingress Defense</span>
           </div>
         </a>
@@ -101,7 +101,7 @@
     <div class="max-w-4xl mx-auto text-center">
       <!-- High-Visibility Hypatian Brand Logo -->
       <div class="flex justify-center mb-8">
-        <img src="/images/hypatian_logo_dark.png" onerror="this.onerror=null; this.src='https://raw.githubusercontent.com/saadrana219/coraza-waf-k8s-defense/main/images/hypatian_logo_dark.png';" alt="Hypatian Systems LLC" class="h-20 sm:h-24 md:h-28 w-auto object-contain drop-shadow-[0_6px_28px_rgba(56,189,248,0.35)]" />
+        <img src="/images/hypatian_logo_dark.png" onerror="this.onerror=null; this.src='https://raw.githubusercontent.com/saadrana219/coraza-waf-k8s-defense/main/images/hypatian_logo_dark.png';" alt="Hypatian Systems Research" class="h-20 sm:h-24 md:h-28 w-auto object-contain drop-shadow-[0_6px_28px_rgba(56,189,248,0.35)]" />
       </div>
       <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold bg-sky-950/80 text-sky-400 border border-sky-800/60 mb-6">
         <span>⚡ Production Engineering Publication</span>
@@ -165,7 +165,7 @@
 
       <hr class="border-slate-800 my-8" />
       <h2 id="1-introduction-the-ingress-defense-dilemma" class="text-2xl md:text-3xl font-bold text-white tracking-tight mt-14 mb-4 pt-8 border-t border-slate-800/80 flex items-center gap-2"><a href="#1-introduction-the-ingress-defense-dilemma" class="text-sky-500 hover:underline">#</a> 1. Introduction: The Ingress Defense Dilemma</h2>
-<p class="text-slate-300 text-base md:text-lg leading-relaxed my-4">At <strong class="text-white font-semibold">Hypatian Systems LLC</strong>, our production Kubernetes cluster serves mission-critical web applications and APIs. Exposing these services to the public Internet invites relentless automated hostility. Within minutes of provisioning a public IP or DNS record, scanning botnets (<code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">nuclei</code>, <code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">masscan</code>, <code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">nikto</code>), automated exploit frameworks, and credential stuffers begin probing web endpoints with directory traversal probes (<code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">/etc/passwd</code>, <code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">.env</code>, <code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">.git</code>), webshell uploads (<code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">eval-stdin.php</code>), and injection attacks (<code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">' OR 1=1--</code>).</p>
+<p class="text-slate-300 text-base md:text-lg leading-relaxed my-4">At <strong class="text-white font-semibold">Hypatian Systems Research</strong>, our production Kubernetes cluster serves mission-critical web applications and APIs. Exposing these services to the public Internet invites relentless automated hostility. Within minutes of provisioning a public IP or DNS record, scanning botnets (<code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">nuclei</code>, <code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">masscan</code>, <code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">nikto</code>), automated exploit frameworks, and credential stuffers begin probing web endpoints with directory traversal probes (<code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">/etc/passwd</code>, <code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">.env</code>, <code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">.git</code>), webshell uploads (<code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">eval-stdin.php</code>), and injection attacks (<code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">' OR 1=1--</code>).</p>
 
 <div class="relative my-8 group rounded-xl overflow-hidden border border-slate-800 bg-slate-950 shadow-2xl">
   <div class="flex items-center justify-between px-4 py-2 bg-slate-900 border-b border-slate-800 text-xs font-mono text-slate-400">
@@ -787,14 +787,14 @@ done</code></pre>
 <h3 id="repository-reference-code" class="text-xl md:text-2xl font-semibold text-slate-100 tracking-tight mt-8 mb-3">Repository & Reference Code</h3>
 <p class="text-slate-300 text-base md:text-lg leading-relaxed my-4">All manifests, Go source code, and scripts are open-source:</p>
 <p class="text-slate-300 text-base md:text-lg leading-relaxed my-4">👉 <a href="https://github.com/saadrana219/coraza-waf-k8s-defense" target="_blank" rel="noopener noreferrer" class="text-sky-400 hover:text-sky-300 underline underline-offset-2 transition font-medium"><strong class="text-white font-semibold">https://github.com/saadrana219/coraza-waf-k8s-defense</strong></a></p>
-<p class="text-slate-300 text-base md:text-lg leading-relaxed my-4"><em class="italic text-slate-300">Published by the Hypatian Systems LLC Infrastructure & Security Engineering Team.</em></p>
+<p class="text-slate-300 text-base md:text-lg leading-relaxed my-4"><em class="italic text-slate-300">Published by the Hypatian Systems Research Infrastructure & Security Engineering Team.</em></p>
     </article>
   </main>
 
   <!-- Footer -->
   <footer class="border-t border-slate-800 py-12 bg-slate-950 text-center text-xs text-slate-500">
     <div class="max-w-4xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-4">
-      <p>© 2026 Hypatian Systems LLC. All rights reserved. Published under MIT License.</p>
+      <p>© 2026 Hypatian Systems Research. All rights reserved. Published under MIT License.</p>
       <div class="flex items-center gap-4">
         <a href="https://github.com/saadrana219/coraza-waf-k8s-defense" class="hover:text-slate-300 transition">GitHub Repo</a>
         <a href="#top" class="hover:text-slate-300 transition">Back to Top ↑</a>
