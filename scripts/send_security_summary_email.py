@@ -21,8 +21,8 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
 AWS_REGION = os.environ.get("AWS_REGION", "us-east-1")
-REPORT_SENDER = "Hypatian Security Operations <alert@hypatian.io>"
-REPORT_RECIPIENT = "saad@hypatian.io"
+REPORT_SENDER = "CloudDefense Security Operations <alerts@example.com>"
+REPORT_RECIPIENT = "secops@example.com"
 
 
 def get_aws_credentials():
@@ -155,7 +155,7 @@ def main():
       <strong>Generated:</strong> {now_str} &bull; 
       <strong>Recipient:</strong> {REPORT_RECIPIENT} &bull; 
       <strong>Sender:</strong> {REPORT_SENDER} &bull; 
-      <strong>Cluster:</strong> hypatian-k8s (OpenSearch 2.19.7)
+      <strong>Cluster:</strong> k8s-production (OpenSearch 2.19.7)
     </div>
     <div class="content">
       <p>
@@ -401,8 +401,8 @@ def main():
         Alerts trigger actions configured with JSON mustache payload templates routed to the AWS SES channel:
       </p>
       <ul>
-        <li><strong>SES Destination Channel:</strong> <span class="code">hypatian-ses-email-channel</span> (Webhook relay to <code>prometheus-opensearch-bridge:8080/webhook</code>)</li>
-        <li><strong>Delivery Path:</strong> <code>Hypatian OpenSearch Alerting &lt;alert@hypatian.io&gt;</code> &rarr; <code>saad@hypatian.io</code></li>
+        <li><strong>SES Destination Channel:</strong> <span class="code">ses-alerts-channel</span> (Webhook relay to <code>prometheus-opensearch-bridge:8080/webhook</code>)</li>
+        <li><strong>Delivery Path:</strong> <code>CloudDefense OpenSearch Alerting &lt;alerts@example.com&gt;</code> &rarr; <code>secops@example.com</code></li>
         <li><strong>Rate Limiting &amp; Deduplication:</strong> 30-minute deduplication cooldown per trigger to prevent alert flooding during active attack waves.</li>
         <li><strong>Historical Audit Log:</strong> Every fired detection and correlation alert is indexed into <span class="code">alerts-history-YYYY.MM.DD</span> with full finding metadata.</li>
       </ul>
@@ -419,34 +419,34 @@ def main():
         <tbody>
           <tr>
             <td><strong>8. Security Analytics &amp; Threat Intel Dashboard</strong></td>
-            <td><a href="http://192.168.2.243:5601/app/dashboards#/view/dashboard-security-analytics">http://192.168.2.243:5601/.../dashboard-security-analytics</a></td>
+            <td><a href="http://10.0.20.50:5601/app/dashboards#/view/dashboard-security-analytics">http://10.0.20.50:5601/.../dashboard-security-analytics</a></td>
             <td>Live AlienVault threat hits, findings by severity, attack vectors &amp; malicious IPs</td>
           </tr>
           <tr>
             <td><strong>Security Analytics Native App</strong></td>
-            <td><a href="http://192.168.2.243:5601/app/security-analytics-dashboards#/">http://192.168.2.243:5601/app/security-analytics-dashboards#/</a></td>
+            <td><a href="http://10.0.20.50:5601/app/security-analytics-dashboards#/">http://10.0.20.50:5601/app/security-analytics-dashboards#/</a></td>
             <td>OpenSearch Security Analytics detectors, findings, correlations &amp; alerts</td>
           </tr>
           <tr>
             <td><strong>Threat Intelligence Feeds</strong></td>
-            <td><a href="http://192.168.2.243:5601/app/security-analytics-dashboards#/threat-intel">http://192.168.2.243:5601/.../threat-intel</a></td>
+            <td><a href="http://10.0.20.50:5601/app/security-analytics-dashboards#/threat-intel">http://10.0.20.50:5601/.../threat-intel</a></td>
             <td>AlienVault IP Reputation feed status &amp; 609 active malicious IOCs</td>
           </tr>
           <tr>
             <td><strong>7. Coraza WAF &amp; OWASP Dashboard</strong></td>
-            <td><a href="http://192.168.2.243:5601/app/dashboards#/view/dashboard-waf-logs">http://192.168.2.243:5601/.../dashboard-waf-logs</a></td>
+            <td><a href="http://10.0.20.50:5601/app/dashboards#/view/dashboard-waf-logs">http://10.0.20.50:5601/.../dashboard-waf-logs</a></td>
             <td>Coraza WAF blocked attacks, live attack GeoIP maps &amp; OWASP Top 10 breakdown</td>
           </tr>
           <tr>
             <td><strong>Scheduled Reporting Plugin</strong></td>
-            <td><a href="http://192.168.2.243:5601/app/reports-dashboards#/">http://192.168.2.243:5601/app/reports-dashboards#/</a></td>
+            <td><a href="http://10.0.20.50:5601/app/reports-dashboards#/">http://10.0.20.50:5601/app/reports-dashboards#/</a></td>
             <td>8 Weekly executive PDF reports (including Security Analytics report)</td>
           </tr>
         </tbody>
       </table>
     </div>
     <div class="footer">
-      Hypatian Homelab Kubernetes Observability &bull; OpenSearch 2.19.7 Security Analytics &bull; Alerting via AWS SES
+      Cloud Defense Kubernetes Observability &bull; OpenSearch 2.19.7 Security Analytics &bull; Alerting via AWS SES
     </div>
   </div>
 </body>
@@ -503,10 +503,10 @@ CORRELATION RULES (5-MINUTE SLIDING WINDOW):
 3. waf-application-error-correlation: Correlates WAF attacks with backend app 5xx / runtime exceptions (CRITICAL - P1)
 
 DASHBOARD URLS (LAN):
-- Security Analytics Dashboard: http://192.168.2.243:5601/app/dashboards#/view/dashboard-security-analytics
-- Security Analytics UI: http://192.168.2.243:5601/app/security-analytics-dashboards#/
-- Threat Intel Feeds: http://192.168.2.243:5601/app/security-analytics-dashboards#/threat-intel
-- WAF Dashboard: http://192.168.2.243:5601/app/dashboards#/view/dashboard-waf-logs
+- Security Analytics Dashboard: http://10.0.20.50:5601/app/dashboards#/view/dashboard-security-analytics
+- Security Analytics UI: http://10.0.20.50:5601/app/security-analytics-dashboards#/
+- Threat Intel Feeds: http://10.0.20.50:5601/app/security-analytics-dashboards#/threat-intel
+- WAF Dashboard: http://10.0.20.50:5601/app/dashboards#/view/dashboard-waf-logs
 """
 
     print(f"[email] Dispatching Security Analytics report to {REPORT_RECIPIENT} from {REPORT_SENDER}...")

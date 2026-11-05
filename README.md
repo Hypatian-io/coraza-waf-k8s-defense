@@ -54,13 +54,13 @@ flowchart TD
     end
 
     subgraph Layer1 ["1. Ingress & Client IP Preservation"]
-        MetalLB["MetalLB LoadBalancer\n192.168.2.242:443"]
+        MetalLB["MetalLB LoadBalancer\n203.0.113.10:443"]
         Traefik["Traefik Reverse Proxy\nexternalTrafficPolicy: Local\n(Preserves True REMOTE_ADDR)"]
     end
 
     subgraph Layer2 ["2. Coraza v3 WAF & Management Console"]
-        CorazaProxy["Coraza WAF Reverse Proxy\n(192.168.2.244:80)\nPure Go v3.2.1 | CRS v4.3.0\nAtomic Pointer Swap Hot-Reload"]
-        CorazaUI["Native WAF Console & SecLang Playground\n(192.168.2.244:8080)"]
+        CorazaProxy["Coraza WAF Reverse Proxy\n(10.0.10.15:80)\nPure Go v3.2.1 | CRS v4.3.0\nAtomic Pointer Swap Hot-Reload"]
+        CorazaUI["Native WAF Console & SecLang Playground\n(10.0.10.15:8080)"]
     end
 
     subgraph Layer3 ["3. Protected Application Services"]
@@ -82,7 +82,7 @@ flowchart TD
     subgraph Layer6 ["6. Automated Defense & Executive Alerting"]
         BurstDetectors["14 Query-Level Burst Monitors\n(SQLi, RCE, XSS, Scanner Storms)"]
         AutoBlockDaemon["Autonomous IP Blocker Daemon\n(Evaluates > 5 attacks / 15m)"]
-        SESEmail["AWS SES Notification Relay\n(saad@hypatian.io)"]
+        SESEmail["AWS SES Notification Relay\n(secops@example.com)"]
     end
 
     Attacker -->|HTTPS Request| MetalLB
@@ -122,7 +122,7 @@ metadata:
 spec:
   type: LoadBalancer
   externalTrafficPolicy: Local  # <--- PRESERVES CLIENT IP (NO KUBE-PROXY SNAT)
-  loadBalancerIP: 192.168.2.242
+  loadBalancerIP: 203.0.113.10
   selector:
     app.kubernetes.io/name: traefik
   ports:
@@ -264,7 +264,7 @@ flowchart TD
     CheckDupe -->|Yes| Sleep
     CheckDupe -->|No| AddRule["Append IP to Blocklist\nGenerate SecRule 100020 @ipMatch"]
     AddRule --> PostReload["Hot-Reload Coraza WAF Engine\nPOST http://coraza-waf-service:8080/api/config"]
-    PostReload --> EmailAlert["Dispatch AWS SES Executive Alert\n(saad@hypatian.io)"]
+    PostReload --> EmailAlert["Dispatch AWS SES Executive Alert\n(secops@example.com)"]
 ```
 
 ### Visual: Quarantined Attacker IPs & Threat Intelligence Table
@@ -299,7 +299,7 @@ When a threshold breaches, engineers receive an enriched notification detailing 
 ```
 🚨 [CRITICAL - P1] High-Rate SQL Injection Attack Burst Detected
 ──────────────────────────────────────────────────────────────────
-Cluster: hypatian-k8s | Engine: Coraza v3 WAF | Rule Group: RG-942
+Cluster: k8s-production | Engine: Coraza v3 WAF | Rule Group: RG-942
 Total Blocked Requests: 24 requests in last 120s (~12 attacks/min)
 
 🎯 Top Targeted Endpoints:
@@ -443,4 +443,4 @@ Within 60 seconds:
 All manifests, Go source code, and scripts are open-source:
 👉 [**https://github.com/saadrana219/coraza-waf-k8s-defense**](https://github.com/saadrana219/coraza-waf-k8s-defense)
 
-*Published by the Hypatian Infrastructure & Security Engineering Team.*
+*Published by the CloudDefense Infrastructure & Security Engineering Team.*

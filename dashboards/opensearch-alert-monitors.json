@@ -73,14 +73,14 @@
             },
             "actions": [
               {
-                "name": "Email saad@hypatian.io from alert@hypatian.io (Sev 1)",
-                "destination_id": "hypatian-ses-email-channel",
+                "name": "Email secops@example.com from alerts@example.com (Sev 1)",
+                "destination_id": "ses-alerts-channel",
                 "subject_template": {
-                  "source": "[Sev 1] Hypatian K8s Alert: 1. [CRITICAL] Cluster Outage & Node Availability Monitor",
+                  "source": "[Sev 1] CloudDefense K8s Alert: 1. [CRITICAL] Cluster Outage & Node Availability Monitor",
                   "lang": "mustache"
                 },
                 "message_template": {
-                  "source": "{\"monitor_name\": \"1. [CRITICAL] Cluster Outage & Node Availability Monitor\", \"trigger_name\": \"Kubernetes Node NotReady or OpenSearch Cluster Red\", \"severity\": \"1\", \"category\": \"Cluster Health & Outage (Prometheus + OpenSearch)\", \"summary\": \"One or more Kubernetes nodes reported NotReady (expected 5/5 Ready nodes: kubeapi, kubeworker1..4), metrics heartbeat was lost, or OpenSearch cluster health entered RED state.\", \"details\": \"Monitor: {{ctx.monitor.name}} | Trigger: {{ctx.trigger.name}} | Severity: {{ctx.trigger.severity}} | Window: {{ctx.periodStart}} to {{ctx.periodEnd}} | Total Matching Docs: {{ctx.results.0.hits.total.value}}\"}",
+                  "source": "{\"monitor_name\": \"1. [CRITICAL] Cluster Outage & Node Availability Monitor\", \"trigger_name\": \"Kubernetes Node NotReady or OpenSearch Cluster Red\", \"severity\": \"1\", \"category\": \"Cluster Health & Outage (Prometheus + OpenSearch)\", \"summary\": \"One or more Kubernetes nodes reported NotReady (expected 5/5 Ready nodes: control-plane-01, worker-node-01..4), metrics heartbeat was lost, or OpenSearch cluster health entered RED state.\", \"details\": \"Monitor: {{ctx.monitor.name}} | Trigger: {{ctx.trigger.name}} | Severity: {{ctx.trigger.severity}} | Window: {{ctx.periodStart}} to {{ctx.periodEnd}} | Total Matching Docs: {{ctx.results.0.hits.total.value}}\"}",
                   "lang": "mustache"
                 },
                 "throttle_enabled": true,
@@ -180,10 +180,10 @@
             },
             "actions": [
               {
-                "name": "Email saad@hypatian.io from alert@hypatian.io (Sev 1)",
-                "destination_id": "hypatian-ses-email-channel",
+                "name": "Email secops@example.com from alerts@example.com (Sev 1)",
+                "destination_id": "ses-alerts-channel",
                 "subject_template": {
-                  "source": "[Sev 1] Hypatian K8s Alert: 2. [CRITICAL] Control-Plane & Storage Outage Log Monitor",
+                  "source": "[Sev 1] CloudDefense K8s Alert: 2. [CRITICAL] Control-Plane & Storage Outage Log Monitor",
                   "lang": "mustache"
                 },
                 "message_template": {
@@ -281,10 +281,10 @@
             },
             "actions": [
               {
-                "name": "Email saad@hypatian.io from alert@hypatian.io (Sev 2)",
-                "destination_id": "hypatian-ses-email-channel",
+                "name": "Email secops@example.com from alerts@example.com (Sev 2)",
+                "destination_id": "ses-alerts-channel",
                 "subject_template": {
-                  "source": "[Sev 2] Hypatian K8s Alert: 3. [HIGH] Pod Failure, CrashLoopBackOff & OOMKilled Monitor",
+                  "source": "[Sev 2] CloudDefense K8s Alert: 3. [HIGH] Pod Failure, CrashLoopBackOff & OOMKilled Monitor",
                   "lang": "mustache"
                 },
                 "message_template": {
@@ -381,14 +381,14 @@
             },
             "actions": [
               {
-                "name": "Email saad@hypatian.io from alert@hypatian.io (Sev 2)",
-                "destination_id": "hypatian-ses-email-channel",
+                "name": "Email secops@example.com from alerts@example.com (Sev 2)",
+                "destination_id": "ses-alerts-channel",
                 "subject_template": {
-                  "source": "[Sev 2] Hypatian K8s Alert: 4. [HIGH] External IP Rate-Limit Abuse Monitor (>=100 req/5m)",
+                  "source": "[Sev 2] CloudDefense K8s Alert: 4. [HIGH] External IP Rate-Limit Abuse Monitor (>=100 req/5m)",
                   "lang": "mustache"
                 },
                 "message_template": {
-                  "source": "{\"monitor_name\": \"4. [HIGH] External IP Rate-Limit Abuse Monitor (>=100 req/5m)\", \"trigger_name\": \"Single External IP Exceeded 100 Requests in 5 Minutes\", \"severity\": \"2\", \"category\": \"Network Security & Rate-Limit Protection\", \"summary\": \"One or more external client IPs exceeded the rate limit of 100 requests within 5 minutes against publicly exposed Hypatian applications (top IP: {{ctx.results.0.aggregations.abusive_ips.buckets.0.key}} with {{ctx.results.0.aggregations.abusive_ips.buckets.0.doc_count}} requests).\", \"details\": \"Monitor: {{ctx.monitor.name}} | Trigger: {{ctx.trigger.name}} | Severity: {{ctx.trigger.severity}} | Window: {{ctx.periodStart}} to {{ctx.periodEnd}} | Total Matching Docs: {{ctx.results.0.hits.total.value}}\"}",
+                  "source": "{\"monitor_name\": \"4. [HIGH] External IP Rate-Limit Abuse Monitor (>=100 req/5m)\", \"trigger_name\": \"Single External IP Exceeded 100 Requests in 5 Minutes\", \"severity\": \"2\", \"category\": \"Network Security & Rate-Limit Protection\", \"summary\": \"One or more external client IPs exceeded the rate limit of 100 requests within 5 minutes against publicly exposed CloudDefense applications (top IP: {{ctx.results.0.aggregations.abusive_ips.buckets.0.key}} with {{ctx.results.0.aggregations.abusive_ips.buckets.0.doc_count}} requests).\", \"details\": \"Monitor: {{ctx.monitor.name}} | Trigger: {{ctx.trigger.name}} | Severity: {{ctx.trigger.severity}} | Window: {{ctx.periodStart}} to {{ctx.periodEnd}} | Total Matching Docs: {{ctx.results.0.hits.total.value}}\"}",
                   "lang": "mustache"
                 },
                 "throttle_enabled": true,
@@ -477,10 +477,10 @@
             },
             "actions": [
               {
-                "name": "Email saad@hypatian.io from alert@hypatian.io (Sev 2)",
-                "destination_id": "hypatian-ses-email-channel",
+                "name": "Email secops@example.com from alerts@example.com (Sev 2)",
+                "destination_id": "ses-alerts-channel",
                 "subject_template": {
-                  "source": "[Sev 2] Hypatian K8s Alert: 5. [HIGH] Cluster Node Memory Shortage Monitor (>85% RAM)",
+                  "source": "[Sev 2] CloudDefense K8s Alert: 5. [HIGH] Cluster Node Memory Shortage Monitor (>85% RAM)",
                   "lang": "mustache"
                 },
                 "message_template": {
@@ -608,10 +608,10 @@
             },
             "actions": [
               {
-                "name": "Email saad@hypatian.io from alert@hypatian.io (Sev 2)",
-                "destination_id": "hypatian-ses-email-channel",
+                "name": "Email secops@example.com from alerts@example.com (Sev 2)",
+                "destination_id": "ses-alerts-channel",
                 "subject_template": {
-                  "source": "[Sev 2] Hypatian K8s Alert: 6. [HIGH] Node & Longhorn PVC Disk Pressure Monitor (>80% Disk)",
+                  "source": "[Sev 2] CloudDefense K8s Alert: 6. [HIGH] Node & Longhorn PVC Disk Pressure Monitor (>80% Disk)",
                   "lang": "mustache"
                 },
                 "message_template": {
@@ -707,10 +707,10 @@
             },
             "actions": [
               {
-                "name": "Email saad@hypatian.io from alert@hypatian.io (Sev 3)",
-                "destination_id": "hypatian-ses-email-channel",
+                "name": "Email secops@example.com from alerts@example.com (Sev 3)",
+                "destination_id": "ses-alerts-channel",
                 "subject_template": {
-                  "source": "[Sev 3] Hypatian K8s Alert: 7. [MEDIUM] Sustained Node CPU Spike Monitor (>85% CPU)",
+                  "source": "[Sev 3] CloudDefense K8s Alert: 7. [MEDIUM] Sustained Node CPU Spike Monitor (>85% CPU)",
                   "lang": "mustache"
                 },
                 "message_template": {
@@ -807,14 +807,14 @@
             },
             "actions": [
               {
-                "name": "Email saad@hypatian.io from alert@hypatian.io (Sev 3)",
-                "destination_id": "hypatian-ses-email-channel",
+                "name": "Email secops@example.com from alerts@example.com (Sev 3)",
+                "destination_id": "ses-alerts-channel",
                 "subject_template": {
-                  "source": "[Sev 3] Hypatian K8s Alert: 8. [MEDIUM] Application Runtime Error & HTTP 5xx Spike Monitor",
+                  "source": "[Sev 3] CloudDefense K8s Alert: 8. [MEDIUM] Application Runtime Error & HTTP 5xx Spike Monitor",
                   "lang": "mustache"
                 },
                 "message_template": {
-                  "source": "{\"monitor_name\": \"8. [MEDIUM] Application Runtime Error & HTTP 5xx Spike Monitor\", \"trigger_name\": \"Application Error or HTTP 5xx Spike (>= 15 errors / 5m)\", \"severity\": \"3\", \"category\": \"Application Sidecar & HTTP Reliability\", \"summary\": \"Application error or HTTP 5xx spike detected across Hypatian workloads ({{ctx.results.0.hits.total.value}} error events in the last 5 minutes across hypatian-web, hypatian-web-app, azaan-app, homeassistant, or mariadb-galera).\", \"details\": \"Monitor: {{ctx.monitor.name}} | Trigger: {{ctx.trigger.name}} | Severity: {{ctx.trigger.severity}} | Window: {{ctx.periodStart}} to {{ctx.periodEnd}} | Total Matching Docs: {{ctx.results.0.hits.total.value}}\"}",
+                  "source": "{\"monitor_name\": \"8. [MEDIUM] Application Runtime Error & HTTP 5xx Spike Monitor\", \"trigger_name\": \"Application Error or HTTP 5xx Spike (>= 15 errors / 5m)\", \"severity\": \"3\", \"category\": \"Application Sidecar & HTTP Reliability\", \"summary\": \"Application error or HTTP 5xx spike detected across CloudDefense workloads ({{ctx.results.0.hits.total.value}} error events in the last 5 minutes across web-frontend, api-backend, azaan-app, homeassistant, or mariadb-galera).\", \"details\": \"Monitor: {{ctx.monitor.name}} | Trigger: {{ctx.trigger.name}} | Severity: {{ctx.trigger.severity}} | Window: {{ctx.periodStart}} to {{ctx.periodEnd}} | Total Matching Docs: {{ctx.results.0.hits.total.value}}\"}",
                   "lang": "mustache"
                 },
                 "throttle_enabled": true,
@@ -907,10 +907,10 @@
             },
             "actions": [
               {
-                "name": "Email saad@hypatian.io from alert@hypatian.io (Sev 4)",
-                "destination_id": "hypatian-ses-email-channel",
+                "name": "Email secops@example.com from alerts@example.com (Sev 4)",
+                "destination_id": "ses-alerts-channel",
                 "subject_template": {
-                  "source": "[Sev 4] Hypatian K8s Alert: 9. [LOW] Security & Unauthorized API / SSH Audit Monitor",
+                  "source": "[Sev 4] CloudDefense K8s Alert: 9. [LOW] Security & Unauthorized API / SSH Audit Monitor",
                   "lang": "mustache"
                 },
                 "message_template": {
@@ -1028,10 +1028,10 @@
             },
             "actions": [
               {
-                "name": "Email saad@hypatian.io from alert@hypatian.io (Sev 1)",
-                "destination_id": "hypatian-ses-email-channel",
+                "name": "Email secops@example.com from alerts@example.com (Sev 1)",
+                "destination_id": "ses-alerts-channel",
                 "subject_template": {
-                  "source": "[Sev 1] Hypatian K8s Alert: 10. [CRITICAL] Coraza WAF SQL Injection Attack Burst Detector (>=5 req/2m)",
+                  "source": "[Sev 1] CloudDefense K8s Alert: 10. [CRITICAL] Coraza WAF SQL Injection Attack Burst Detector (>=5 req/2m)",
                   "lang": "mustache"
                 },
                 "message_template": {
@@ -1162,10 +1162,10 @@
             },
             "actions": [
               {
-                "name": "Email saad@hypatian.io from alert@hypatian.io (Sev 1)",
-                "destination_id": "hypatian-ses-email-channel",
+                "name": "Email secops@example.com from alerts@example.com (Sev 1)",
+                "destination_id": "ses-alerts-channel",
                 "subject_template": {
-                  "source": "[Sev 1] Hypatian K8s Alert: 11. [CRITICAL] Coraza WAF Remote Code Execution & LFI Burst Detector (>=3 req/2m)",
+                  "source": "[Sev 1] CloudDefense K8s Alert: 11. [CRITICAL] Coraza WAF Remote Code Execution & LFI Burst Detector (>=3 req/2m)",
                   "lang": "mustache"
                 },
                 "message_template": {
@@ -1283,10 +1283,10 @@
             },
             "actions": [
               {
-                "name": "Email saad@hypatian.io from alert@hypatian.io (Sev 2)",
-                "destination_id": "hypatian-ses-email-channel",
+                "name": "Email secops@example.com from alerts@example.com (Sev 2)",
+                "destination_id": "ses-alerts-channel",
                 "subject_template": {
-                  "source": "[Sev 2] Hypatian K8s Alert: 12. [HIGH] Coraza WAF Cross-Site Scripting (XSS) Burst Detector (>=5 req/2m)",
+                  "source": "[Sev 2] CloudDefense K8s Alert: 12. [HIGH] Coraza WAF Cross-Site Scripting (XSS) Burst Detector (>=5 req/2m)",
                   "lang": "mustache"
                 },
                 "message_template": {
@@ -1417,10 +1417,10 @@
             },
             "actions": [
               {
-                "name": "Email saad@hypatian.io from alert@hypatian.io (Sev 2)",
-                "destination_id": "hypatian-ses-email-channel",
+                "name": "Email secops@example.com from alerts@example.com (Sev 2)",
+                "destination_id": "ses-alerts-channel",
                 "subject_template": {
-                  "source": "[Sev 2] Hypatian K8s Alert: 13. [HIGH] Coraza WAF Vulnerability Scanner & Recon Burst Detector (>=10 req/2m)",
+                  "source": "[Sev 2] CloudDefense K8s Alert: 13. [HIGH] Coraza WAF Vulnerability Scanner & Recon Burst Detector (>=10 req/2m)",
                   "lang": "mustache"
                 },
                 "message_template": {
@@ -1523,10 +1523,10 @@
             },
             "actions": [
               {
-                "name": "Email saad@hypatian.io from alert@hypatian.io (Sev 1)",
-                "destination_id": "hypatian-ses-email-channel",
+                "name": "Email secops@example.com from alerts@example.com (Sev 1)",
+                "destination_id": "ses-alerts-channel",
                 "subject_template": {
-                  "source": "[Sev 1] Hypatian K8s Alert: 14. [CRITICAL] Coraza WAF Multi-Class High-Rate Attack Burst Detector (>=15 req/2m)",
+                  "source": "[Sev 1] CloudDefense K8s Alert: 14. [CRITICAL] Coraza WAF Multi-Class High-Rate Attack Burst Detector (>=15 req/2m)",
                   "lang": "mustache"
                 },
                 "message_template": {

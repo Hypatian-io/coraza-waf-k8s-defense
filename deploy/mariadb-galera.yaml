@@ -73,7 +73,7 @@ spec:
           GALERA_ARGS=(
             "--wsrep-on=ON"
             "--wsrep-provider=/usr/lib/galera/libgalera_smm.so"
-            "--wsrep-cluster-name=hypatian_galera"
+            "--wsrep-cluster-name=defense_galera"
             "--wsrep-cluster-address=gcomm://mariadb-galera-0.mariadb-galera-headless.default.svc.cluster.local,mariadb-galera-1.mariadb-galera-headless.default.svc.cluster.local,mariadb-galera-2.mariadb-galera-headless.default.svc.cluster.local"
             "--wsrep-node-name=$HOSTNAME"
             "--wsrep-node-address=$POD_IP"
@@ -99,16 +99,16 @@ spec:
         - name: MARIADB_RANDOM_ROOT_PASSWORD
           value: "1"
         - name: MARIADB_DATABASE
-          value: hypatian_db
+          value: defense_db
         - name: MARIADB_USER
           valueFrom:
             secretKeyRef:
-              name: hypatian-secrets
+              name: defense-secrets
               key: db-user
         - name: MARIADB_PASSWORD
           valueFrom:
             secretKeyRef:
-              name: hypatian-secrets
+              name: defense-secrets
               key: db-pass
         ports:
         - containerPort: 3306

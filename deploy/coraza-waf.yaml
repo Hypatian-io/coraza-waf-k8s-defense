@@ -130,7 +130,7 @@ data:
 
     	dataDir      = getEnv("WAF_DATA_DIR", "/data")
     	auditLogPath = getEnv("WAF_AUDIT_LOG", "/var/log/waf/audit.log")
-    	upstreamURL  = getEnv("UPSTREAM_URL", "http://hypatian-web-service.default.svc.cluster.local:80")
+    	upstreamURL  = getEnv("UPSTREAM_URL", "http://web-frontend-service.default.svc.cluster.local:80")
     )
 
     func getEnv(k, fallback string) string {
@@ -247,7 +247,7 @@ data:
     		BlockedIPs:    []string{},
     		AllowedIPs:    []string{},
     		RuleGroups:    defaultRuleGroups(),
-    		CustomSecRules: `# Custom Native Coraza SecLang Rules for hypatian.io
+    		CustomSecRules: `# Custom Native Coraza SecLang Rules for example.com
     # Example: Block specific custom header or path
     SecRule REQUEST_HEADERS:X-Attack-Test "@streq blockme" "id:100001,phase:1,deny,status:403,log,msg:'Custom SecRule 100001: Blocked X-Attack-Test Header',tag:'CUSTOM_WAF_RULE',severity:'ERROR'"
     `,
@@ -697,7 +697,7 @@ data:
     			reqSpec.UserAgent = "Mozilla/5.0 (Coraza-Playground-Simulator)"
     		}
 
-    		simReq, err := http.NewRequest(reqSpec.Method, "http://hypatian.io"+reqSpec.URI, strings.NewReader(reqSpec.Body))
+    		simReq, err := http.NewRequest(reqSpec.Method, "http://example.com"+reqSpec.URI, strings.NewReader(reqSpec.Body))
     		if err != nil {
     			http.Error(w, err.Error(), http.StatusBadRequest)
     			return
@@ -765,7 +765,7 @@ data:
     				ClientIP:      reqSpec.ClientIP,
     				RequestMethod: reqSpec.Method,
     				RequestURI:    reqSpec.URI,
-    				Host:          "hypatian.io",
+    				Host:          "example.com",
     				UserAgent:     reqSpec.UserAgent,
     				RuleID:        primaryID,
     				RuleIDs:       ruleIDs,
@@ -812,7 +812,7 @@ data:
     <head>
       <meta charset="UTF-8" />
       <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-      <title>Coraza WAF Console & SecLang Playground — hypatian.io</title>
+      <title>Coraza WAF Console & SecLang Playground — example.com</title>
       <style>
         :root {
           --bg: #0b0f19;
@@ -1055,13 +1055,13 @@ data:
         <div class="brand">
           <div class="shield">🛡️</div>
           <div>
-            <h1>Coraza WAF v3 &amp; OWASP CRS Console — hypatian.io</h1>
-            <p>Native Go Coraza SecLang Engine &bull; Fronting Public Traffic (`hypatian-web` &amp; `hypatian-web-app`) &bull; Shipping to OpenSearch `logs-waf-*`</p>
+            <h1>Coraza WAF v3 &amp; OWASP CRS Console — example.com</h1>
+            <p>Native Go Coraza SecLang Engine &bull; Fronting Public Traffic (`web-frontend` &amp; `api-backend`) &bull; Shipping to OpenSearch `logs-waf-*`</p>
           </div>
         </div>
         <div class="ext-links">
-          <a class="btn btn-outline" href="http://192.168.2.243:5601/app/dashboards#/view/dashboard-waf-logs" target="_blank">📊 OpenSearch WAF Dashboard</a>
-          <a class="btn btn-outline" href="http://192.168.2.243:5601/app/alerting#/monitors" target="_blank">🔔 OpenSearch Alerting Monitors</a>
+          <a class="btn btn-outline" href="http://10.0.20.50:5601/app/dashboards#/view/dashboard-waf-logs" target="_blank">📊 OpenSearch WAF Dashboard</a>
+          <a class="btn btn-outline" href="http://10.0.20.50:5601/app/alerting#/monitors" target="_blank">🔔 OpenSearch Alerting Monitors</a>
           <button class="btn btn-success" onclick="saveAndReload()">⚡ Validate &amp; Hot-Reload WAF Rules</button>
         </div>
       </header>
@@ -1152,7 +1152,7 @@ data:
                 </p>
               </div>
               <div style="display:flex; gap:10px;">
-                <a class="btn btn-outline" href="http://192.168.2.243:5601/app/dashboards#/view/dashboard-waf-logs" target="_blank">📊 OpenSearch WAF Dashboard</a>
+                <a class="btn btn-outline" href="http://10.0.20.50:5601/app/dashboards#/view/dashboard-waf-logs" target="_blank">📊 OpenSearch WAF Dashboard</a>
                 <button class="btn btn-outline" onclick="fetchStatus()">🔄 Refresh Threat Table</button>
               </div>
             </div>
@@ -1215,7 +1215,7 @@ data:
               </div>
               <div>
                 <label style="font-size:12px; color:var(--muted);">Allowed / Trusted IPs / CIDRs (bypasses WAF inspection — generates `id:100010 allow`)</label>
-                <textarea id="allowedIPs" rows="4" placeholder="e.g. 192.168.2.1"></textarea>
+                <textarea id="allowedIPs" rows="4" placeholder="e.g. 10.0.0.1, 192.0.2.1"></textarea>
               </div>
             </div>
           </div>
@@ -1489,7 +1489,7 @@ data:
             const flag = meta.flag || "🌐";
             const countryStr = `${flag} ${meta.country || 'Unknown'}${meta.city && meta.city !== 'Unknown' ? ` (${meta.city})` : ''}`;
             const pathsHtml = (meta.top_paths || []).slice(0, 3).map(p => `<span class="tag-pill">${escapeHtml(p)}</span>`).join('');
-            const openSearchLink = `http://192.168.2.243:5601/app/discover#/?_a=(index:logs-waf-all,query:(language:kuery,query:'client_ip:%22${encodeURIComponent(ip)}%22'))`;
+            const openSearchLink = `http://10.0.20.50:5601/app/discover#/?_a=(index:logs-waf-all,query:(language:kuery,query:'client_ip:%22${encodeURIComponent(ip)}%22'))`;
 
             return `
               <tr class="blocked-row" data-ip="${escapeHtml(ip)}" data-country="${escapeHtml(meta.country || '')}" data-vector="${escapeHtml(meta.attack_vector || '')}" data-payload="${escapeHtml(meta.sample_payload || '')}">
@@ -1777,8 +1777,8 @@ spec:
                   - key: kubernetes.io/hostname
                     operator: In
                     values:
-                      - kubeapi
-                      - kubeworker2
+                      - control-plane-01
+                      - worker-node-02
       containers:
         - name: coraza-waf
           image: golang:1.22-alpine
@@ -1801,7 +1801,7 @@ spec:
                 export GOCACHE=/data/go-cache
                 export GOPATH=/data/go-path
                 if [ ! -f go.mod ]; then
-                  go mod init hypatian-coraza-waf
+                  go mod init coraza-waf-defense
                 fi
                 go get github.com/corazawaf/coraza/v3@v3.2.1 github.com/corazawaf/coraza-coreruleset/v4@v4.3.0
                 go mod tidy
@@ -1815,7 +1815,7 @@ spec:
               exec /data/bin/coraza-waf-server
           env:
             - name: UPSTREAM_URL
-              value: "http://hypatian-web-service.default.svc.cluster.local:80"
+              value: "http://web-frontend-service.default.svc.cluster.local:80"
             - name: WAF_DATA_DIR
               value: "/data"
             - name: WAF_AUDIT_LOG
@@ -1887,7 +1887,7 @@ metadata:
     app: coraza-waf
 spec:
   type: LoadBalancer
-  loadBalancerIP: 192.168.2.244
+  loadBalancerIP: 10.0.10.15
   selector:
     app: coraza-waf
   ports:

@@ -3,7 +3,7 @@ import json
 import urllib.parse
 import urllib.request
 
-DASHBOARDS_URL = "http://192.168.2.243:5601"
+DASHBOARDS_URL = "http://10.0.20.50:5601"
 
 def ensure_index_patterns():
     patterns = [
@@ -439,7 +439,7 @@ def vis_line_avg(vis_id, title, index_id, metric_field, metric_label, split_fiel
 
 def vis_markdown_nav(vis_id):
     md = (
-        "### Hypatian Kubernetes Observability, Coraza WAF & Alerting Suite\n"
+        "### Production Kubernetes Observability, Coraza WAF & Alerting Suite\n"
         "**Dashboards:** "
         "[1. Cluster & Workload Health](/app/dashboards#/view/dashboard-cluster-health) | "
         "[2. Application Sidecar Logs](/app/dashboards#/view/dashboard-app-logs) | "
@@ -448,7 +448,7 @@ def vis_markdown_nav(vis_id):
         "[5. Security & K8s API Audit](/app/dashboards#/view/dashboard-audit-logs) | "
         "[6. Prometheus Metrics & Alerting](/app/dashboards#/view/dashboard-prometheus-alerts) | "
         "🛡️ **[7. Coraza WAF & OWASP Security](/app/dashboards#/view/dashboard-waf-logs)** | "
-        "⚙️ **[Coraza WAF Console (`:8080`)](http://192.168.2.244:8080)** | "
+        "⚙️ **[Coraza WAF Console (`:8080`)](http://10.0.10.15:8080)** | "
         "🔔 **[Alerting Monitors](/app/alerting#/monitors)**"
     )
     vis_state = {
@@ -573,7 +573,7 @@ objects.extend([
     vis_metric("vis-app-total", "Total Sidecar Application Logs", idx_app),
     vis_metric("vis-app-azaan", "Azaan Station Events", idx_app, "app: \"azaan-app\""),
     vis_metric("vis-app-mariadb", "MariaDB Galera Events", idx_app, "app: \"mariadb-galera\""),
-    vis_metric("vis-app-webapp", "Hypatian Web App & HomeAssistant Events", idx_app, "app: \"hypatian-web-app\" or app: \"homeassistant\""),
+    vis_metric("vis-app-webapp", "CloudDefense Web App & HomeAssistant Events", idx_app, "app: \"api-backend\" or app: \"homeassistant\""),
     vis_histogram("vis-app-timeline", "Application Log Volume Over Time (by Workload)", idx_app, "app.keyword", "Application"),
     vis_pie("vis-app-pie", "Logs by Sidecar Application", idx_app, "app.keyword", "Application"),
     vis_hbar("vis-app-pods", "Application Logs by Pod Instance", idx_app, "pod.keyword", "Pod"),
@@ -583,7 +583,7 @@ objects.extend([
 objects.append(build_dashboard(
     "dashboard-app-logs",
     "2. Application Sidecar Logs Dashboard",
-    "Application logs shipped via Fluent Bit sidecar containers from hypatian-web-app, azaan-app, homeassistant, and mariadb-galera",
+    "Application logs shipped via Fluent Bit sidecar containers from api-backend, azaan-app, homeassistant, and mariadb-galera",
     [
         {"id": "vis-nav-header", "type": "visualization", "title": "Navigation", "x": 0, "y": 0, "w": 48, "h": 4},
         {"id": "vis-app-total", "type": "visualization", "title": "Total Sidecar App Logs", "x": 0, "y": 4, "w": 12, "h": 7},
@@ -704,9 +704,9 @@ objects.append(build_dashboard(
 # 6. PROMETHEUS METRICS & ALERTING DASHBOARD (index: metrics-cluster-all + alerts-history-all)
 objects.extend([
     vis_metric("vis-prom-total-samples", "Prometheus Metric Samples", idx_metrics),
-    vis_metric("vis-alerts-total", "Triggered Alerts (alert@hypatian.io -> saad@hypatian.io)", idx_alerts),
+    vis_metric("vis-alerts-total", "Triggered Alerts (alerts@example.com -> secops@example.com)", idx_alerts),
     vis_pie("vis-alerts-by-crit", "Triggered Alerts by Criticality", idx_alerts, "criticality.keyword", "Criticality"),
-    saved_search("search-alerts-stream", "Dispatched Alert History (alert@hypatian.io -> saad@hypatian.io)", idx_alerts,
+    saved_search("search-alerts-stream", "Dispatched Alert History (alerts@example.com -> secops@example.com)", idx_alerts,
                  ["criticality", "monitor_name", "trigger_name", "category", "sender", "recipient", "summary"]),
     saved_search("search-prom-node-stream", "Live Prometheus Node Resource Metrics (CPU %, RAM %, Disk %)", idx_metrics,
                  ["node", "cpu_usage_pct", "memory_usage_pct", "memory_avail_mb", "disk_usage_pct", "disk_avail_gb", "load_1m", "node_ready"],
@@ -715,18 +715,18 @@ objects.extend([
 objects.append(build_dashboard(
     "dashboard-prometheus-alerts",
     "6. Prometheus Metrics & Alerting Dashboard",
-    "Prometheus Node CPU %, Memory %, Root Disk %, Longhorn PVC Storage %, Pod Memory MB, and Dispatched AWS SES Alert History (alert@hypatian.io -> saad@hypatian.io)",
+    "Prometheus Node CPU %, Memory %, Root Disk %, Longhorn PVC Storage %, Pod Memory MB, and Dispatched AWS SES Alert History (alerts@example.com -> secops@example.com)",
     [
         {"id": "vis-nav-header", "type": "visualization", "title": "Navigation", "x": 0, "y": 0, "w": 48, "h": 4},
         {"id": "vis-prom-total-samples", "type": "visualization", "title": "Prometheus Metric Samples", "x": 0, "y": 4, "w": 14, "h": 8},
-        {"id": "vis-alerts-total", "type": "visualization", "title": "Dispatched Alerts (alert@hypatian.io)", "x": 14, "y": 4, "w": 14, "h": 8},
+        {"id": "vis-alerts-total", "type": "visualization", "title": "Dispatched Alerts (alerts@example.com)", "x": 14, "y": 4, "w": 14, "h": 8},
         {"id": "vis-alerts-by-crit", "type": "visualization", "title": "Alerts by Criticality Tier", "x": 28, "y": 4, "w": 20, "h": 8},
         {"id": "vis-prom-node-cpu", "type": "visualization", "title": "Node CPU Utilization % (Prometheus)", "x": 0, "y": 12, "w": 24, "h": 12},
         {"id": "vis-prom-node-mem", "type": "visualization", "title": "Node Memory Utilization % (Prometheus)", "x": 24, "y": 12, "w": 24, "h": 12},
         {"id": "vis-prom-node-disk", "type": "visualization", "title": "Node Root Filesystem Usage % (Prometheus)", "x": 0, "y": 24, "w": 16, "h": 12},
         {"id": "vis-prom-pvc-disk", "type": "visualization", "title": "Longhorn PVC Storage Usage % (Prometheus)", "x": 16, "y": 24, "w": 16, "h": 12},
         {"id": "vis-prom-pod-mem", "type": "visualization", "title": "Top Pod Memory Working Set MB (Prometheus)", "x": 32, "y": 24, "w": 16, "h": 12},
-        {"id": "search-alerts-stream", "type": "search", "title": "Alert History (Sent from alert@hypatian.io to saad@hypatian.io)", "x": 0, "y": 36, "w": 48, "h": 12},
+        {"id": "search-alerts-stream", "type": "search", "title": "Alert History (Sent from alerts@example.com to secops@example.com)", "x": 0, "y": 36, "w": 48, "h": 12},
         {"id": "search-prom-node-stream", "type": "search", "title": "Live Prometheus Node Resource Metrics Stream", "x": 0, "y": 48, "w": 48, "h": 14},
     ]
 ))

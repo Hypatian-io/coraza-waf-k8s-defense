@@ -73,8 +73,8 @@ spec:
                   - key: kubernetes.io/hostname
                     operator: In
                     values:
-                      - kubeapi
-                      - kubeworker2
+                      - control-plane-01
+                      - worker-node-02
         podAntiAffinity:
           preferredDuringSchedulingIgnoredDuringExecution:
             - weight: 100
@@ -133,7 +133,7 @@ spec:
                 fieldRef:
                   fieldPath: metadata.name
             - name: cluster.name
-              value: "hypatian-opensearch"
+              value: "defense-opensearch"
             - name: node.name
               value: "$(POD_NAME)"
             - name: discovery.seed_hosts
@@ -202,7 +202,7 @@ metadata:
   namespace: logging
 data:
   opensearch_dashboards.yml: |
-    server.name: hypatian-dashboards
+    server.name: defense-dashboards
     server.host: "0.0.0.0"
     opensearch.hosts: ["http://opensearch.logging.svc.cluster.local:9200"]
 ---
@@ -231,8 +231,8 @@ spec:
                   - key: kubernetes.io/hostname
                     operator: In
                     values:
-                      - kubeworker2
-                      - kubeapi
+                      - worker-node-02
+                      - control-plane-01
       containers:
         - name: opensearch-dashboards
           image: opensearchproject/opensearch-dashboards:2.19.7
@@ -272,10 +272,10 @@ metadata:
   name: opensearch-dashboards-service
   namespace: logging
   annotations:
-    metallb.universe.tf/address-pool: hypatian-ip-pool
+    metallb.universe.tf/address-pool: defense-ip-pool
 spec:
   type: LoadBalancer
-  loadBalancerIP: 192.168.2.243
+  loadBalancerIP: 10.0.20.50
   selector:
     app: opensearch-dashboards
   ports:
@@ -331,7 +331,7 @@ data:
         HTTP_Listen   0.0.0.0
         HTTP_Port     2020
 
-    # 1. Kubernetes API Server Audit Logs (on kubeapi)
+    # 1. Kubernetes API Server Audit Logs (on control-plane-01)
     [INPUT]
         Name              tail
         Tag               audit.k8s
@@ -400,7 +400,7 @@ data:
     [FILTER]
         Name                modify
         Match               *
-        Add                 cluster hypatian-k8s
+        Add                 cluster k8s-production
 
     # Route Error-level logs from cluster/workloads to dedicated logs-errors index as well
     [FILTER]
@@ -622,7 +622,7 @@ data:
     [FILTER]
         Name                modify
         Match               *
-        Add                 app hypatian-web
+        Add                 app web-frontend
         Add                 component nginx-frontend
         Add                 shipper sidecar
 
@@ -689,7 +689,7 @@ data:
     [FILTER]
         Name                modify
         Match               *
-        Add                 app hypatian-web-app
+        Add                 app api-backend
         Add                 shipper sidecar
 
     [FILTER]
@@ -800,7 +800,7 @@ data:
     [FILTER]
         Name                modify
         Match               *
-        Add                 cluster hypatian-k8s
+        Add                 cluster k8s-production
 
     # Route blocked WAF attacks to logs-error-* as well for central visibility (keep=true preserves waf.audit -> logs-waf-*)
     [FILTER]
@@ -908,9 +908,9 @@ data:
     OS_URL = os.environ.get("OPENSEARCH_URL", "http://opensearch.logging.svc.cluster.local:9200")
     WAF_ADMIN_URL = os.environ.get("WAF_ADMIN_URL", "http://coraza-waf-service.default.svc.cluster.local:8080")
     AWS_REGION = os.environ.get("AWS_REGION", "us-east-1")
-    ALERT_FROM = os.environ.get("ALERT_FROM", "Hypatian OpenSearch Alerting <alert@hypatian.io>")
-    ALERT_TO = os.environ.get("ALERT_TO", "saad@hypatian.io")
-    EXPECTED_NODES = ["kubeapi", "kubeworker1", "kubeworker2", "kubeworker3", "kubeworker4"]
+    ALERT_FROM = os.environ.get("ALERT_FROM", "CloudDefense OpenSearch Alerting <alerts@example.com>")
+    ALERT_TO = os.environ.get("ALERT_TO", "secops@example.com")
+    EXPECTED_NODES = ["control-plane-01", "worker-node-01", "worker-node-02", "worker-node-03", "worker-node-04"]
 
     SEVERITY_MAP = {
         "1": {"label": "CRITICAL - P1", "color": "#dc2626", "bg": "#fef2f2", "desc": "Immediate Action Required — Cluster/Node Outage, Control-Plane Failure, or Critical OWASP WAF Attack"},
@@ -1032,7 +1032,7 @@ data:
 
                 def add_doc(doc):
                     doc["@timestamp"] = ts
-                    doc["cluster"] = "hypatian-k8s"
+                    doc["cluster"] = "k8s-production"
                     bulk_lines.append(json.dumps({"index": {"_index": idx}}))
                     bulk_lines.append(json.dumps(doc))
 
@@ -1446,7 +1446,7 @@ data:
                         if up_res.get("status") == "reloaded":
                             print(f"[auto_block_waf] Permanently blocked {len(new_blocked)} new IP(s) in Coraza WAF: {[b['ip'] for b in new_blocked]}", flush=True)
                             new_ip_list_str = ", ".join([f"{b['ip']} (Peak: {b['peak_15m']}/15m)" for b in new_blocked])
-                            subject = f"[CRITICAL - P1] Hypatian Security: {len(new_blocked)} Attacking IP(s) Permanently Blocked by Coraza WAF"
+                            subject = f"[CRITICAL - P1] CloudDefense Security: {len(new_blocked)} Attacking IP(s) Permanently Blocked by Coraza WAF"
                             html = f"""<div style='font-family:sans-serif;padding:20px;'><h2 style='color:#dc2626;'>[CRITICAL - P1] Coraza WAF Automated IP Defense</h2><p>The automated threat defense engine moved <strong>{len(new_blocked)}</strong> IP(s) to <strong>PERMANENTLY BLOCKED</strong> state in Coraza WAF after exceeding attack threshold (&gt;5 attacks in 15m):</p><p><code>{new_ip_list_str}</code></p></div>"""
                             txt = f"[CRITICAL - P1] Coraza WAF Automated IP Defense\nPermanently blocked {len(new_blocked)} IP(s): {new_ip_list_str}\n"
                             if new_blocked:
@@ -1606,7 +1606,7 @@ data:
 
             sev_key = str(data.get("severity", "2")).strip()
             sev_info = SEVERITY_MAP.get(sev_key, SEVERITY_MAP["2"])
-            monitor_name = data.get("monitor_name", "Hypatian K8s Monitor")
+            monitor_name = data.get("monitor_name", "CloudDefense K8s Monitor")
             trigger_name = data.get("trigger_name", "Threshold Exceeded")
             category = data.get("category", "Kubernetes & OpenSearch Operations")
             summary = data.get("summary") or data.get("message") or "Alert threshold triggered in OpenSearch Alerting."
@@ -1623,14 +1623,14 @@ data:
             emailed = False
 
             if force or (now_ts - last_sent >= COOLDOWN_SECONDS):
-                subject = f"[{sev_info['label']}] Hypatian K8s Alert: {monitor_name}"
+                subject = f"[{sev_info['label']}] CloudDefense K8s Alert: {monitor_name}"
                 utc_str = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
                 html_body = f"""<!DOCTYPE html>
     <html>
     <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color: #1e293b; max-width: 720px; margin: 0 auto; padding: 20px;">
       <div style="border: 2px solid {sev_info['color']}; border-radius: 10px; overflow: hidden;">
         <div style="background: {sev_info['color']}; color: #ffffff; padding: 16px 20px;">
-          <div style="font-size: 12px; text-transform: uppercase; letter-spacing: 1px; opacity: 0.9;">Hypatian Homelab OpenSearch Alerting</div>
+          <div style="font-size: 12px; text-transform: uppercase; letter-spacing: 1px; opacity: 0.9;">Cloud Defense OpenSearch Alerting</div>
           <h2 style="margin: 6px 0 0 0; font-size: 20px;">[{sev_info['label']}] {monitor_name}</h2>
         </div>
         <div style="background: {sev_info['bg']}; padding: 12px 20px; border-bottom: 1px solid #e2e8f0; font-size: 13px; color: #334155;">
@@ -1643,7 +1643,7 @@ data:
             <tr><td style="padding: 6px 0; color: #64748b;"><strong>Category:</strong></td><td>{category}</td></tr>
             <tr><td style="padding: 6px 0; color: #64748b;"><strong>Criticality:</strong></td><td><span style="background: {sev_info['color']}; color: #fff; padding: 2px 8px; border-radius: 4px; font-weight: bold; font-size: 12px;">{sev_info['label']} (Sev {sev_key})</span></td></tr>
             <tr><td style="padding: 6px 0; color: #64748b;"><strong>Timestamp:</strong></td><td>{utc_str}</td></tr>
-            <tr><td style="padding: 6px 0; color: #64748b;"><strong>Sender / Recipient:</strong></td><td>alert@hypatian.io &rarr; {ALERT_TO}</td></tr>
+            <tr><td style="padding: 6px 0; color: #64748b;"><strong>Sender / Recipient:</strong></td><td>alerts@example.com &rarr; {ALERT_TO}</td></tr>
           </table>
           <div style="background: #f8fafc; border-left: 4px solid {sev_info['color']}; padding: 12px 16px; margin-bottom: 16px; font-size: 14px;">
             <strong>Alert Summary:</strong><br/>{summary}
@@ -1652,15 +1652,15 @@ data:
           {f'<pre style="background: #0f172a; color: #e2e8f0; padding: 12px; border-radius: 6px; font-size: 12px; overflow-x: auto;">{details}</pre>' if details else ''}
           <div style="margin-top: 18px; padding-top: 14px; border-top: 1px solid #e2e8f0; font-size: 13px; color: #475569;">
             <strong>Quick Links (Local LAN):</strong><br/>
-            &bull; <a href="http://192.168.2.243:5601/app/alerting#/monitors">OpenSearch Alerting Monitors UI (192.168.2.243:5601)</a><br/>
-            &bull; <a href="http://192.168.2.243:5601/app/dashboards#/view/dashboard-cluster-health">Cluster &amp; Workload Health Dashboard</a><br/>
-            &bull; <a href="http://192.168.2.243:5601/app/dashboards#/view/dashboard-network-logs">Network, GeoIP &amp; Rate-Limit Dashboard</a>
+            &bull; <a href="http://10.0.20.50:5601/app/alerting#/monitors">OpenSearch Alerting Monitors UI (10.0.20.50:5601)</a><br/>
+            &bull; <a href="http://10.0.20.50:5601/app/dashboards#/view/dashboard-cluster-health">Cluster &amp; Workload Health Dashboard</a><br/>
+            &bull; <a href="http://10.0.20.50:5601/app/dashboards#/view/dashboard-network-logs">Network, GeoIP &amp; Rate-Limit Dashboard</a>
           </div>
         </div>
       </div>
     </body>
     </html>"""
-                text_body = f"[{sev_info['label']}] Hypatian K8s Alert: {monitor_name}\nTrigger: {trigger_name}\nCategory: {category}\nTimestamp: {utc_str}\nSummary: {summary}\n{pod_diag_txt}Details: {details}\nOpenSearch Alerting UI: http://192.168.2.243:5601/app/alerting#/monitors\n"
+                text_body = f"[{sev_info['label']}] CloudDefense K8s Alert: {monitor_name}\nTrigger: {trigger_name}\nCategory: {category}\nTimestamp: {utc_str}\nSummary: {summary}\n{pod_diag_txt}Details: {details}\nOpenSearch Alerting UI: http://10.0.20.50:5601/app/alerting#/monitors\n"
                 try:
                     emailed = send_ses_email(subject, html_body, text_body)
                     if emailed:
@@ -1673,7 +1673,7 @@ data:
                 now_dt = datetime.datetime.now(datetime.timezone.utc)
                 alert_doc = {
                     "@timestamp": now_dt.strftime("%Y-%m-%dT%H:%M:%SZ"),
-                    "cluster": "hypatian-k8s",
+                    "cluster": "k8s-production",
                     "monitor_name": monitor_name,
                     "trigger_name": trigger_name,
                     "category": category,
@@ -1681,7 +1681,7 @@ data:
                     "criticality": sev_info["label"],
                     "summary": summary,
                     "emailed": emailed,
-                    "sender": "alert@hypatian.io",
+                    "sender": "alerts@example.com",
                     "recipient": ALERT_TO
                 }
                 idx = f"alerts-history-{now_dt.strftime('%Y.%m.%d')}"
@@ -1742,9 +1742,9 @@ spec:
             - name: AWS_REGION
               value: "us-east-1"
             - name: ALERT_FROM
-              value: "Hypatian OpenSearch Alerting <alert@hypatian.io>"
+              value: "CloudDefense OpenSearch Alerting <alerts@example.com>"
             - name: ALERT_TO
-              value: "saad@hypatian.io"
+              value: "secops@example.com"
             - name: AWS_ACCESS_KEY_ID
               valueFrom:
                 secretKeyRef:

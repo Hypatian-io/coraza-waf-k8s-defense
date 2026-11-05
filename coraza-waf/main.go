@@ -110,7 +110,7 @@ var (
 
 	dataDir      = getEnv("WAF_DATA_DIR", "/data")
 	auditLogPath = getEnv("WAF_AUDIT_LOG", "/var/log/waf/audit.log")
-	upstreamURL  = getEnv("UPSTREAM_URL", "http://hypatian-web-service.default.svc.cluster.local:80")
+	upstreamURL  = getEnv("UPSTREAM_URL", "http://web-frontend-service.default.svc.cluster.local:80")
 )
 
 func getEnv(k, fallback string) string {
@@ -227,7 +227,7 @@ func defaultConfig() WAFConfig {
 		BlockedIPs:    []string{},
 		AllowedIPs:    []string{},
 		RuleGroups:    defaultRuleGroups(),
-		CustomSecRules: `# Custom Native Coraza SecLang Rules for hypatian.io
+		CustomSecRules: `# Custom Native Coraza SecLang Rules for example.com
 # Example: Block specific custom header or path
 SecRule REQUEST_HEADERS:X-Attack-Test "@streq blockme" "id:100001,phase:1,deny,status:403,log,msg:'Custom SecRule 100001: Blocked X-Attack-Test Header',tag:'CUSTOM_WAF_RULE',severity:'ERROR'"
 `,
@@ -677,7 +677,7 @@ func main() {
 			reqSpec.UserAgent = "Mozilla/5.0 (Coraza-Playground-Simulator)"
 		}
 
-		simReq, err := http.NewRequest(reqSpec.Method, "http://hypatian.io"+reqSpec.URI, strings.NewReader(reqSpec.Body))
+		simReq, err := http.NewRequest(reqSpec.Method, "http://example.com"+reqSpec.URI, strings.NewReader(reqSpec.Body))
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
@@ -745,7 +745,7 @@ func main() {
 				ClientIP:      reqSpec.ClientIP,
 				RequestMethod: reqSpec.Method,
 				RequestURI:    reqSpec.URI,
-				Host:          "hypatian.io",
+				Host:          "example.com",
 				UserAgent:     reqSpec.UserAgent,
 				RuleID:        primaryID,
 				RuleIDs:       ruleIDs,

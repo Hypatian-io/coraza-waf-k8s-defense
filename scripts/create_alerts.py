@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
 Provision OpenSearch Alerting Monitors & AWS SES Notification Channel
-for the Hypatian Kubernetes Homelab Cluster.
+for the Production Kubernetes Homelab Cluster.
 
 All monitors dispatch structured alerts via OpenSearch Notifications
 to `prometheus-opensearch-bridge` (http://prometheus-opensearch-bridge.logging.svc.cluster.local:8080/webhook),
 which sends formatted emails via AWS SES (us-east-1) from:
-  alert@hypatian.io -> saad@hypatian.io
+  alerts@example.com -> secops@example.com
 with consistent criticality tags:
   - Sev 1: [CRITICAL - P1]
   - Sev 2: [HIGH - P2]
@@ -17,7 +17,7 @@ import json
 import subprocess
 import sys
 
-CHANNEL_ID = "hypatian-ses-email-channel"
+CHANNEL_ID = "ses-alerts-channel"
 WEBHOOK_URL = "http://prometheus-opensearch-bridge.logging.svc.cluster.local:8080/webhook"
 
 
@@ -54,8 +54,8 @@ def configure_alerting_settings():
 def ensure_notification_channel():
     channel_payload = {
         "config": {
-            "name": "Hypatian AWS SES Alert Email Relay (alert@hypatian.io -> saad@hypatian.io)",
-            "description": "Sends OpenSearch alerts with consistent criticality ([CRITICAL - P1] through [LOW - P4]) from alert@hypatian.io to saad@hypatian.io via AWS SES",
+            "name": "CloudDefense AWS SES Alert Email Relay (alerts@example.com -> secops@example.com)",
+            "description": "Sends OpenSearch alerts with consistent criticality ([CRITICAL - P1] through [LOW - P4]) from alerts@example.com to secops@example.com via AWS SES",
             "config_type": "webhook",
             "is_enabled": True,
             "webhook": {
@@ -117,10 +117,10 @@ def make_query_monitor(name, interval_mins, indices, query_dsl, trigger_name, se
                     },
                     "actions": [
                         {
-                            "name": f"Email saad@hypatian.io from alert@hypatian.io (Sev {severity})",
+                            "name": f"Email secops@example.com from alerts@example.com (Sev {severity})",
                             "destination_id": CHANNEL_ID,
                             "subject_template": {
-                                "source": f"[Sev {severity}] Hypatian K8s Alert: {name}",
+                                "source": f"[Sev {severity}] CloudDefense K8s Alert: {name}",
                                 "lang": "mustache"
                             },
                             "message_template": {
@@ -173,7 +173,7 @@ def build_monitors():
             "(ctx.results[0].aggregations.max_os_code.value != null && ctx.results[0].aggregations.max_os_code.value >= 2)"
         ),
         category="Cluster Health & Outage (Prometheus + OpenSearch)",
-        summary_template="One or more Kubernetes nodes reported NotReady (expected 5/5 Ready nodes: kubeapi, kubeworker1..4), metrics heartbeat was lost, or OpenSearch cluster health entered RED state."
+        summary_template="One or more Kubernetes nodes reported NotReady (expected 5/5 Ready nodes: control-plane-01, worker-node-01..4), metrics heartbeat was lost, or OpenSearch cluster health entered RED state."
     ))
 
     # 2. [CRITICAL - Sev 1] Control-Plane & Storage Outage Log Monitor
@@ -270,7 +270,7 @@ def build_monitors():
         severity="2",
         condition_script="ctx.results[0].aggregations.abusive_ips.buckets.size() > 0",
         category="Network Security & Rate-Limit Protection",
-        summary_template="One or more external client IPs exceeded the rate limit of 100 requests within 5 minutes against publicly exposed Hypatian applications (top IP: {{ctx.results.0.aggregations.abusive_ips.buckets.0.key}} with {{ctx.results.0.aggregations.abusive_ips.buckets.0.doc_count}} requests)."
+        summary_template="One or more external client IPs exceeded the rate limit of 100 requests within 5 minutes against publicly exposed CloudDefense applications (top IP: {{ctx.results.0.aggregations.abusive_ips.buckets.0.key}} with {{ctx.results.0.aggregations.abusive_ips.buckets.0.doc_count}} requests)."
     ))
 
     # 5. [HIGH - Sev 2] Cluster Node Memory Shortage Monitor (>85% RAM)
@@ -415,7 +415,7 @@ def build_monitors():
         severity="3",
         condition_script="ctx.results[0].hits.total.value >= 15",
         category="Application Sidecar & HTTP Reliability",
-        summary_template="Application error or HTTP 5xx spike detected across Hypatian workloads ({{ctx.results.0.hits.total.value}} error events in the last 5 minutes across hypatian-web, hypatian-web-app, azaan-app, homeassistant, or mariadb-galera)."
+        summary_template="Application error or HTTP 5xx spike detected across CloudDefense workloads ({{ctx.results.0.hits.total.value}} error events in the last 5 minutes across web-frontend, api-backend, azaan-app, homeassistant, or mariadb-galera)."
     ))
 
     # 9. [LOW - Sev 4] Security & Unauthorized Kubernetes API / SSH Audit Monitor

@@ -21,10 +21,10 @@ import sys
 import urllib.parse
 import urllib.request
 
-WAF_API_URL = os.environ.get("WAF_API_URL", "http://192.168.2.244:8080")
+WAF_API_URL = os.environ.get("WAF_API_URL", "http://10.0.10.15:8080")
 OS_URL = os.environ.get("OPENSEARCH_URL", "http://localhost:9200")
-ALERT_FROM = "Hypatian Security Operations <alert@hypatian.io>"
-ALERT_TO = "saad@hypatian.io"
+ALERT_FROM = "CloudDefense Security Operations <alerts@example.com>"
+ALERT_TO = "secops@example.com"
 AWS_REGION = os.environ.get("AWS_REGION", "us-east-1")
 ATTACK_THRESHOLD_15M = 5  # Attacks over 5 in 15 minutes
 
@@ -235,7 +235,7 @@ def log_block_alert_to_opensearch(ip, offender_data):
     idx = f"alerts-history-{now_dt.strftime('%Y.%m.%d')}"
     doc = {
         "@timestamp": now_dt.strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "cluster": "hypatian-k8s",
+        "cluster": "k8s-production",
         "monitor_name": "Coraza WAF Automated Attacker IP Blocker",
         "trigger_name": "Attacks Exceeded 5 in 15 Minutes Trigger",
         "category": "Coraza WAF Automated IP Defense",
@@ -248,7 +248,7 @@ def log_block_alert_to_opensearch(ip, offender_data):
         "top_paths": offender_data["top_paths"],
         "summary": f"Client IP {ip} permanently blocked in Coraza WAF after exceeding attack threshold (Peak: {offender_data['peak_15m']} attacks in 15m).",
         "emailed": True,
-        "sender": "alert@hypatian.io",
+        "sender": "alerts@example.com",
         "recipient": ALERT_TO
     }
     cmd = [
@@ -367,7 +367,7 @@ def execute_auto_blocking():
         print(f"  * {b['ip']} (Peak: {b['peak_15m']} req/15m, Total: {b['total_attacks']})")
 
     # Send Notification Email for newly blocked IPs
-    subject = f"[CRITICAL - P1] Hypatian Security: {len(newly_blocked)} Attacking IP(s) Permanently Blocked by Coraza WAF"
+    subject = f"[CRITICAL - P1] CloudDefense Security: {len(newly_blocked)} Attacking IP(s) Permanently Blocked by Coraza WAF"
     utc_now = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
 
     ip_rows_html = []
@@ -391,7 +391,7 @@ def execute_auto_blocking():
 <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color: #1e293b; max-width: 760px; margin: 0 auto; padding: 20px;">
   <div style="border: 2px solid #dc2626; border-radius: 10px; overflow: hidden; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);">
     <div style="background: #dc2626; color: #ffffff; padding: 18px 24px;">
-      <div style="font-size: 12px; text-transform: uppercase; letter-spacing: 1px; opacity: 0.9;">Hypatian Homelab Security Operations</div>
+      <div style="font-size: 12px; text-transform: uppercase; letter-spacing: 1px; opacity: 0.9;">Cloud Defense Security Operations</div>
       <h2 style="margin: 6px 0 0 0; font-size: 20px;">[CRITICAL - P1] Coraza WAF Automated IP Defense Enforcement</h2>
     </div>
     <div style="background: #fef2f2; padding: 12px 24px; border-bottom: 1px solid #fee2e2; font-size: 13px; color: #991b1b;">
@@ -423,9 +423,9 @@ def execute_auto_blocking():
 
       <div style="margin-top: 18px; padding-top: 14px; border-top: 1px solid #e2e8f0; font-size: 13px; color: #475569;">
         <strong>Quick Links (Local LAN):</strong><br/>
-        &bull; <a href="http://192.168.2.244:8080">Coraza WAF Management Console &amp; Blocklist UI</a><br/>
-        &bull; <a href="http://192.168.2.243:5601/app/dashboards#/view/dashboard-waf-logs">Coraza WAF Threat &amp; GeoIP Dashboard</a><br/>
-        &bull; <a href="http://192.168.2.243:5601/app/dashboards#/view/dashboard-security-analytics">Security Analytics &amp; Threat Intel Dashboard</a>
+        &bull; <a href="http://10.0.10.15:8080">Coraza WAF Management Console &amp; Blocklist UI</a><br/>
+        &bull; <a href="http://10.0.20.50:5601/app/dashboards#/view/dashboard-waf-logs">Coraza WAF Threat &amp; GeoIP Dashboard</a><br/>
+        &bull; <a href="http://10.0.20.50:5601/app/dashboards#/view/dashboard-security-analytics">Security Analytics &amp; Threat Intel Dashboard</a>
       </div>
     </div>
   </div>
@@ -440,7 +440,7 @@ Blocked Client IPs:
 {"".join(ip_rows_txt)}
 
 Total Blocked IPs in Coraza WAF: {len(cfg['blocked_ips'])}
-Management UI: http://192.168.2.244:8080
+Management UI: http://10.0.10.15:8080
 """
 
     send_ses_email(subject, html_body, text_body)

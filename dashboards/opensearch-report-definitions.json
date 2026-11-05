@@ -6,10 +6,10 @@
     "category": "Security and WAF Performance",
     "format": "pdf",
     "schedule": "Weekly (Every 7 Days)",
-    "sender": "reporting@hypatian.io",
-    "recipient": "saad@hypatian.io",
-    "channel_id": "hypatian-ses-reporting-channel",
-    "view_url": "http://192.168.2.243:5601/app/reports-dashboards#/reportDefinitionDetails/nFsZqqEBfM7f3OmSl1TD"
+    "sender": "reports@example.com",
+    "recipient": "secops@example.com",
+    "channel_id": "ses-reporting-channel",
+    "view_url": "http://10.0.20.50:5601/app/reports-dashboards#/reportDefinitionDetails/nFsZqqEBfM7f3OmSl1TD"
   },
   {
     "id": "nlsZqqEBfM7f3OmSmFQn",
@@ -18,10 +18,10 @@
     "category": "Network and Ingress Traffic",
     "format": "pdf",
     "schedule": "Weekly (Every 7 Days)",
-    "sender": "reporting@hypatian.io",
-    "recipient": "saad@hypatian.io",
-    "channel_id": "hypatian-ses-reporting-channel",
-    "view_url": "http://192.168.2.243:5601/app/reports-dashboards#/reportDefinitionDetails/nlsZqqEBfM7f3OmSmFQn"
+    "sender": "reports@example.com",
+    "recipient": "secops@example.com",
+    "channel_id": "ses-reporting-channel",
+    "view_url": "http://10.0.20.50:5601/app/reports-dashboards#/reportDefinitionDetails/nlsZqqEBfM7f3OmSmFQn"
   },
   {
     "id": "oFsZqqEBfM7f3OmSmFSh",
@@ -30,10 +30,10 @@
     "category": "Cluster Security Audit",
     "format": "pdf",
     "schedule": "Weekly (Every 7 Days)",
-    "sender": "reporting@hypatian.io",
-    "recipient": "saad@hypatian.io",
-    "channel_id": "hypatian-ses-reporting-channel",
-    "view_url": "http://192.168.2.243:5601/app/reports-dashboards#/reportDefinitionDetails/oFsZqqEBfM7f3OmSmFSh"
+    "sender": "reports@example.com",
+    "recipient": "secops@example.com",
+    "channel_id": "ses-reporting-channel",
+    "view_url": "http://10.0.20.50:5601/app/reports-dashboards#/reportDefinitionDetails/oFsZqqEBfM7f3OmSmFSh"
   },
   {
     "id": "olsZqqEBfM7f3OmSmVQF",
@@ -42,10 +42,10 @@
     "category": "Cluster Health and Uptime",
     "format": "pdf",
     "schedule": "Weekly (Every 7 Days)",
-    "sender": "reporting@hypatian.io",
-    "recipient": "saad@hypatian.io",
-    "channel_id": "hypatian-ses-reporting-channel",
-    "view_url": "http://192.168.2.243:5601/app/reports-dashboards#/reportDefinitionDetails/olsZqqEBfM7f3OmSmVQF"
+    "sender": "reports@example.com",
+    "recipient": "secops@example.com",
+    "channel_id": "ses-reporting-channel",
+    "view_url": "http://10.0.20.50:5601/app/reports-dashboards#/reportDefinitionDetails/olsZqqEBfM7f3OmSmVQF"
   },
   {
     "id": "pFsZqqEBfM7f3OmSmVRR",
@@ -54,10 +54,10 @@
     "category": "Application Logs and Shipper Health",
     "format": "pdf",
     "schedule": "Weekly (Every 7 Days)",
-    "sender": "reporting@hypatian.io",
-    "recipient": "saad@hypatian.io",
-    "channel_id": "hypatian-ses-reporting-channel",
-    "view_url": "http://192.168.2.243:5601/app/reports-dashboards#/reportDefinitionDetails/pFsZqqEBfM7f3OmSmVRR"
+    "sender": "reports@example.com",
+    "recipient": "secops@example.com",
+    "channel_id": "ses-reporting-channel",
+    "view_url": "http://10.0.20.50:5601/app/reports-dashboards#/reportDefinitionDetails/pFsZqqEBfM7f3OmSmVRR"
   },
   {
     "id": "plsZqqEBfM7f3OmSmVSr",
@@ -66,10 +66,10 @@
     "category": "Application and Infrastructure Errors",
     "format": "pdf",
     "schedule": "Weekly (Every 7 Days)",
-    "sender": "reporting@hypatian.io",
-    "recipient": "saad@hypatian.io",
-    "channel_id": "hypatian-ses-reporting-channel",
-    "view_url": "http://192.168.2.243:5601/app/reports-dashboards#/reportDefinitionDetails/plsZqqEBfM7f3OmSmVSr"
+    "sender": "reports@example.com",
+    "recipient": "secops@example.com",
+    "channel_id": "ses-reporting-channel",
+    "view_url": "http://10.0.20.50:5601/app/reports-dashboards#/reportDefinitionDetails/plsZqqEBfM7f3OmSmVSr"
   },
   {
     "id": "qFsZqqEBfM7f3OmSmlQZ",
@@ -78,10 +78,10 @@
     "category": "Resource Metrics and Alert History",
     "format": "pdf",
     "schedule": "Weekly (Every 7 Days)",
-    "sender": "reporting@hypatian.io",
-    "recipient": "saad@hypatian.io",
-    "channel_id": "hypatian-ses-reporting-channel",
-    "view_url": "http://192.168.2.243:5601/app/reports-dashboards#/reportDefinitionDetails/qFsZqqEBfM7f3OmSmlQZ"
+    "sender": "reports@example.com",
+    "recipient": "secops@example.com",
+    "channel_id": "ses-reporting-channel",
+    "view_url": "http://10.0.20.50:5601/app/reports-dashboards#/reportDefinitionDetails/qFsZqqEBfM7f3OmSmlQZ"
   },
   {
     "id": "8_05qqEBVgIgqHxiyrGr",
@@ -90,9 +90,9 @@
     "category": "Security Analytics and Threat Intelligence",
     "format": "pdf",
     "schedule": "Weekly (Every 7 Days)",
-    "sender": "reporting@hypatian.io",
-    "recipient": "saad@hypatian.io",
-    "channel_id": "hypatian-ses-reporting-channel",
-    "view_url": "http://192.168.2.243:5601/app/reports-dashboards#/reportDefinitionDetails/8_05qqEBVgIgqHxiyrGr"
+    "sender": "reports@example.com",
+    "recipient": "secops@example.com",
+    "channel_id": "ses-reporting-channel",
+    "view_url": "http://10.0.20.50:5601/app/reports-dashboards#/reportDefinitionDetails/8_05qqEBVgIgqHxiyrGr"
   }
 ]

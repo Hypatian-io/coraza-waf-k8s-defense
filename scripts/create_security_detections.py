@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Hypatian Security Analytics, AlienVault Threat Intelligence,
+CloudDefense Security Analytics, AlienVault Threat Intelligence,
 Detections, Correlation Rules, and Dashboards Provisioner.
 
 Implements OpenSearch Security Analytics (docs.opensearch.org/latest/security-analytics/):
@@ -23,7 +23,7 @@ Implements OpenSearch Security Analytics (docs.opensearch.org/latest/security-an
    - coraza-waf-threat-detector (Category: waf, logs_waf)
    - network-ingress-threat-detector (Category: network, logs_network)
    - k8s-audit-threat-detector (Category: linux, logs_audit)
-   - Automated triggers routing alerts via hypatian-ses-email-channel (alert@hypatian.io -> saad@hypatian.io).
+   - Automated triggers routing alerts via ses-alerts-channel (alerts@example.com -> secops@example.com).
 5. AlienVault Threat Intelligence Monitor:
    - alienvault-ip-threat-intel-monitor scanning logs_waf, logs_network, logs_audit
      against AlienVault IP Reputation IOCs with automated email alerts.
@@ -49,8 +49,8 @@ import time
 import urllib.error
 import urllib.request
 
-CHANNEL_ID = "hypatian-ses-email-channel"
-OSD_URL = os.environ.get("OSD_URL", "http://192.168.2.243:5601")
+CHANNEL_ID = "ses-alerts-channel"
+OSD_URL = os.environ.get("OSD_URL", "http://10.0.20.50:5601")
 
 
 def os_request(method, path, body=None, content_type="application/json"):
@@ -277,7 +277,7 @@ status: experimental
 description: Detects attacks detected or blocked by Coraza WAF across OWASP Top 10 categories
 references:
   - https://coraza.io
-author: Hypatian SecOps
+author: CloudDefense SecOps
 date: 2026/11/05
 tags:
   - attack.initial_access
@@ -305,7 +305,7 @@ status: experimental
 description: Detects SQL Injection attack attempts blocked by Coraza WAF CRS Rule Group 942
 references:
   - https://owasp.org/www-project-top-ten/2017/A1_2017-Injection
-author: Hypatian SecOps
+author: CloudDefense SecOps
 date: 2026/11/05
 tags:
   - attack.initial_access
@@ -334,7 +334,7 @@ status: experimental
 description: Detects Cross-Site Scripting (XSS) attack attempts blocked by Coraza WAF CRS Rule Group 941
 references:
   - https://owasp.org/www-project-top-ten/2017/A7_2017-Cross-Site_Scripting_(XSS)
-author: Hypatian SecOps
+author: CloudDefense SecOps
 date: 2026/11/05
 tags:
   - attack.initial_access
@@ -363,7 +363,7 @@ status: experimental
 description: Detects Remote Code Execution (RCE) or Local File Inclusion (LFI) attempts blocked by Coraza WAF
 references:
   - https://owasp.org/www-project-top-ten/2017/A1_2017-Injection
-author: Hypatian SecOps
+author: CloudDefense SecOps
 date: 2026/11/05
 tags:
   - attack.execution
@@ -393,7 +393,7 @@ status: experimental
 description: Detects automated scanning tools and web vulnerability recon probing reaching public endpoints
 references:
   - https://attack.mitre.org/techniques/T1595/
-author: Hypatian SecOps
+author: CloudDefense SecOps
 date: 2026/11/05
 tags:
   - attack.reconnaissance
@@ -420,7 +420,7 @@ status: experimental
 description: Detects external client IPs exceeding normal request rate limits triggering HTTP 429
 references:
   - https://attack.mitre.org/techniques/T1499/
-author: Hypatian SecOps
+author: CloudDefense SecOps
 date: 2026/11/05
 tags:
   - attack.impact
@@ -447,7 +447,7 @@ status: experimental
 description: Detects unauthorized attempts or forbidden RBAC access to Kubernetes API control plane
 references:
   - https://kubernetes.io/docs/reference/access-authn-authz/rbac/
-author: Hypatian SecOps
+author: CloudDefense SecOps
 date: 2026/11/05
 tags:
   - attack.privilege_escalation
@@ -650,10 +650,10 @@ def setup_threat_intel_monitor():
                 "severity": "1",
                 "actions": [
                     {
-                        "name": "Email saad@hypatian.io from alert@hypatian.io",
+                        "name": "Email secops@example.com from alerts@example.com",
                         "destination_id": CHANNEL_ID,
                         "subject_template": {
-                            "source": "[CRITICAL - P1] Hypatian Security Alert: AlienVault Threat Intel Malicious IP Match",
+                            "source": "[CRITICAL - P1] CloudDefense Security Alert: AlienVault Threat Intel Malicious IP Match",
                             "lang": "mustache"
                         },
                         "message_template": {
@@ -701,10 +701,10 @@ def setup_correlation_rules():
                 "severity": "1",
                 "actions": [
                     {
-                        "name": "Email saad@hypatian.io from alert@hypatian.io",
+                        "name": "Email secops@example.com from alerts@example.com",
                         "destination_id": CHANNEL_ID,
                         "subject_template": {
-                            "source": "[CRITICAL - P1] Hypatian Security Alert: Multi-Vector Correlated Threat Detected",
+                            "source": "[CRITICAL - P1] CloudDefense Security Alert: Multi-Vector Correlated Threat Detected",
                             "lang": "mustache"
                         },
                         "message_template": {
@@ -734,10 +734,10 @@ def setup_correlation_rules():
                 "severity": "1",
                 "actions": [
                     {
-                        "name": "Email saad@hypatian.io from alert@hypatian.io",
+                        "name": "Email secops@example.com from alerts@example.com",
                         "destination_id": CHANNEL_ID,
                         "subject_template": {
-                            "source": "[CRITICAL - P1] Hypatian Security Alert: Web Exploit to K8s API Unauthorized Attempt",
+                            "source": "[CRITICAL - P1] CloudDefense Security Alert: Web Exploit to K8s API Unauthorized Attempt",
                             "lang": "mustache"
                         },
                         "message_template": {
@@ -767,10 +767,10 @@ def setup_correlation_rules():
                 "severity": "2",
                 "actions": [
                     {
-                        "name": "Email saad@hypatian.io from alert@hypatian.io",
+                        "name": "Email secops@example.com from alerts@example.com",
                         "destination_id": CHANNEL_ID,
                         "subject_template": {
-                            "source": "[HIGH - P2] Hypatian Security Alert: WAF Attack to Workload Exception Anomaly",
+                            "source": "[HIGH - P2] CloudDefense Security Alert: WAF Attack to Workload Exception Anomaly",
                             "lang": "mustache"
                         },
                         "message_template": {
@@ -1093,8 +1093,8 @@ def setup_reporting_definition():
             "core_params": {
                 "base_url": "/app/dashboards#/view/dashboard-security-analytics",
                 "report_format": "pdf",
-                "header": "<p style=\"font-family:sans-serif;font-weight:bold;color:#0f172a;\">Hypatian Observability - Weekly Security Analytics Report</p>",
-                "footer": "<p style=\"font-family:sans-serif;font-size:10px;color:#64748b;\">Confidential - Hypatian Homelab - Generated by reporting@hypatian.io</p>",
+                "header": "<p style=\"font-family:sans-serif;font-weight:bold;color:#0f172a;\">CloudDefense Observability - Weekly Security Analytics Report</p>",
+                "footer": "<p style=\"font-family:sans-serif;font-size:10px;color:#64748b;\">Confidential - Cloud Defense - Generated by reports@example.com</p>",
                 "time_duration": "PT168H",
                 "origin": "http://0.0.0.0:5601",
                 "window_width": 1600,
@@ -1118,9 +1118,9 @@ def setup_reporting_definition():
         },
         "delivery": {
             "title": "[Security Analytics] Weekly Security Analytics and Threat Intelligence Report",
-            "textDescription": "Weekly scheduled OpenSearch PDF report for Weekly Security Analytics and Threat Intelligence Report delivered to saad@hypatian.io from reporting@hypatian.io.",
-            "htmlDescription": "<p>Weekly scheduled OpenSearch PDF report for <strong>Weekly Security Analytics and Threat Intelligence Report</strong> delivered to saad@hypatian.io from reporting@hypatian.io.</p>",
-            "configIds": ["hypatian-ses-reporting-channel"]
+            "textDescription": "Weekly scheduled OpenSearch PDF report for Weekly Security Analytics and Threat Intelligence Report delivered to secops@example.com from reports@example.com.",
+            "htmlDescription": "<p>Weekly scheduled OpenSearch PDF report for <strong>Weekly Security Analytics and Threat Intelligence Report</strong> delivered to secops@example.com from reports@example.com.</p>",
+            "configIds": ["ses-reporting-channel"]
         }
     }
 
@@ -1132,7 +1132,7 @@ def setup_reporting_definition():
 
 def main():
     print("================================================================================")
-    print("Hypatian Security Analytics, AlienVault Threat Intel & Correlation Provisioner")
+    print("CloudDefense Security Analytics, AlienVault Threat Intel & Correlation Provisioner")
     print("================================================================================")
     setup_aliases_and_templates()
     setup_security_mappings()

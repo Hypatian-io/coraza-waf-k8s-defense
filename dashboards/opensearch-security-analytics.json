@@ -1,6 +1,6 @@
 {
   "version": "1.0.0",
-  "cluster": "hypatian-k8s",
+  "cluster": "k8s-production",
   "updated_at": "2026-11-05T05:46:00Z",
   "threat_intel_sources": [
     {
@@ -86,15 +86,15 @@
           "actions": [
             {
               "id": "21s8qqEBfM7f3OmSuVze",
-              "name": "Email saad@hypatian.io from alert@hypatian.io",
-              "destination_id": "hypatian-ses-email-channel",
+              "name": "Email secops@example.com from alerts@example.com",
+              "destination_id": "ses-alerts-channel",
               "message_template": {
                 "source": "{\"monitor_name\": \"AlienVault Threat Intel IP Reputation Match\", \"trigger_name\": \"AlienVault Malicious IP Match Trigger\", \"severity\": \"1\", \"category\": \"AlienVault Threat Intelligence\", \"summary\": \"Inbound request matched active AlienVault OTX malicious IP IOC reputation feed!\", \"details\": \"Threat Intel Match on IP: {{ctx.finding.ioc_value}} | Index: {{ctx.finding.index_name}}\"}",
                 "lang": "mustache"
               },
               "throttle_enabled": false,
               "subject_template": {
-                "source": "[CRITICAL - P1] Hypatian Security Alert: AlienVault Threat Intel Malicious IP Match",
+                "source": "[CRITICAL - P1] CloudDefense Security Alert: AlienVault Threat Intel Malicious IP Match",
                 "lang": "mustache"
               }
             }
@@ -129,7 +129,7 @@
             "value": "Unknown"
           }
         ],
-        "author": "Hypatian SecOps",
+        "author": "CloudDefense SecOps",
         "status": "experimental",
         "last_update_time": "2026-11-05T00:00:00.000Z",
         "queries": [
@@ -143,7 +143,7 @@
           }
         ],
         "aggregationQueries": [],
-        "rule": "\ntitle: Coraza WAF OWASP Attack Blocked\nid: 9a78e472-a402-4d57-bfa8-831e50587291\nstatus: experimental\ndescription: Detects attacks detected or blocked by Coraza WAF\nreferences:\n  - https://coraza.io\nauthor: Hypatian SecOps\ndate: 2026/11/05\ntags:\n  - attack.initial_access\nlogsource:\n  product: waf\n  service: coraza\ndetection:\n  selection:\n    waf.response.code: 403\n  condition: selection\nfalsepositives:\n  - Unknown\nlevel: high\n"
+        "rule": "\ntitle: Coraza WAF OWASP Attack Blocked\nid: 9a78e472-a402-4d57-bfa8-831e50587291\nstatus: experimental\ndescription: Detects attacks detected or blocked by Coraza WAF\nreferences:\n  - https://coraza.io\nauthor: CloudDefense SecOps\ndate: 2026/11/05\ntags:\n  - attack.initial_access\nlogsource:\n  product: waf\n  service: coraza\ndetection:\n  selection:\n    waf.response.code: 403\n  condition: selection\nfalsepositives:\n  - Unknown\nlevel: high\n"
       }
     },
     {
@@ -174,7 +174,7 @@
             "value": "None"
           }
         ],
-        "author": "Hypatian SecOps",
+        "author": "CloudDefense SecOps",
         "status": "experimental",
         "last_update_time": "2026-11-05T00:00:00.000Z",
         "queries": [
@@ -188,7 +188,7 @@
           }
         ],
         "aggregationQueries": [],
-        "rule": "title: Coraza WAF SQL Injection Attack Detected\nid: a189e583-b513-4e68-cfa9-942f61698302\nstatus: experimental\ndescription: Detects SQL Injection attack attempts blocked by Coraza WAF CRS Rule Group 942\nreferences:\n  - https://owasp.org/www-project-top-ten/2017/A1_2017-Injection\nauthor: Hypatian SecOps\ndate: 2026/11/05\ntags:\n  - attack.initial_access\n  - attack.t1190\n  - attack.sqli\nlogsource:\n  product: waf\n  service: coraza\ndetection:\n  selection:\n    waf.response.code: 403\n  condition: selection\nfalsepositives:\n  - None\nlevel: critical"
+        "rule": "title: Coraza WAF SQL Injection Attack Detected\nid: a189e583-b513-4e68-cfa9-942f61698302\nstatus: experimental\ndescription: Detects SQL Injection attack attempts blocked by Coraza WAF CRS Rule Group 942\nreferences:\n  - https://owasp.org/www-project-top-ten/2017/A1_2017-Injection\nauthor: CloudDefense SecOps\ndate: 2026/11/05\ntags:\n  - attack.initial_access\n  - attack.t1190\n  - attack.sqli\nlogsource:\n  product: waf\n  service: coraza\ndetection:\n  selection:\n    waf.response.code: 403\n  condition: selection\nfalsepositives:\n  - None\nlevel: critical"
       }
     },
     {
@@ -219,7 +219,7 @@
             "value": "None"
           }
         ],
-        "author": "Hypatian SecOps",
+        "author": "CloudDefense SecOps",
         "status": "experimental",
         "last_update_time": "2026-11-05T00:00:00.000Z",
         "queries": [
@@ -233,7 +233,7 @@
           }
         ],
         "aggregationQueries": [],
-        "rule": "title: Coraza WAF Cross-Site Scripting Blocked\nid: b290f694-c624-4f79-dfba-053a72709413\nstatus: experimental\ndescription: Detects Cross-Site Scripting (XSS) attack attempts blocked by Coraza WAF CRS Rule Group 941\nreferences:\n  - https://owasp.org/www-project-top-ten/2017/A7_2017-Cross-Site_Scripting_(XSS)\nauthor: Hypatian SecOps\ndate: 2026/11/05\ntags:\n  - attack.initial_access\n  - attack.t1189\n  - attack.xss\nlogsource:\n  product: waf\n  service: coraza\ndetection:\n  selection:\n    waf.response.code: 403\n  condition: selection\nfalsepositives:\n  - None\nlevel: high"
+        "rule": "title: Coraza WAF Cross-Site Scripting Blocked\nid: b290f694-c624-4f79-dfba-053a72709413\nstatus: experimental\ndescription: Detects Cross-Site Scripting (XSS) attack attempts blocked by Coraza WAF CRS Rule Group 941\nreferences:\n  - https://owasp.org/www-project-top-ten/2017/A7_2017-Cross-Site_Scripting_(XSS)\nauthor: CloudDefense SecOps\ndate: 2026/11/05\ntags:\n  - attack.initial_access\n  - attack.t1189\n  - attack.xss\nlogsource:\n  product: waf\n  service: coraza\ndetection:\n  selection:\n    waf.response.code: 403\n  condition: selection\nfalsepositives:\n  - None\nlevel: high"
       }
     },
     {
@@ -267,7 +267,7 @@
             "value": "None"
           }
         ],
-        "author": "Hypatian SecOps",
+        "author": "CloudDefense SecOps",
         "status": "experimental",
         "last_update_time": "2026-11-05T00:00:00.000Z",
         "queries": [
@@ -281,7 +281,7 @@
           }
         ],
         "aggregationQueries": [],
-        "rule": "title: Coraza WAF Remote Code Execution or LFI Attack Blocked\nid: c301a705-d735-4a80-efcb-164b83810524\nstatus: experimental\ndescription: Detects Remote Code Execution (RCE) or Local File Inclusion (LFI) attempts blocked by Coraza WAF\nreferences:\n  - https://owasp.org/www-project-top-ten/2017/A1_2017-Injection\nauthor: Hypatian SecOps\ndate: 2026/11/05\ntags:\n  - attack.execution\n  - attack.t1059\n  - attack.lfi\n  - attack.rce\nlogsource:\n  product: waf\n  service: coraza\ndetection:\n  selection:\n    waf.response.code: 403\n  condition: selection\nfalsepositives:\n  - None\nlevel: critical"
+        "rule": "title: Coraza WAF Remote Code Execution or LFI Attack Blocked\nid: c301a705-d735-4a80-efcb-164b83810524\nstatus: experimental\ndescription: Detects Remote Code Execution (RCE) or Local File Inclusion (LFI) attempts blocked by Coraza WAF\nreferences:\n  - https://owasp.org/www-project-top-ten/2017/A1_2017-Injection\nauthor: CloudDefense SecOps\ndate: 2026/11/05\ntags:\n  - attack.execution\n  - attack.t1059\n  - attack.lfi\n  - attack.rce\nlogsource:\n  product: waf\n  service: coraza\ndetection:\n  selection:\n    waf.response.code: 403\n  condition: selection\nfalsepositives:\n  - None\nlevel: critical"
       }
     },
     {
@@ -309,7 +309,7 @@
             "value": "Legitimate mistyped URLs"
           }
         ],
-        "author": "Hypatian SecOps",
+        "author": "CloudDefense SecOps",
         "status": "experimental",
         "last_update_time": "2026-11-05T00:00:00.000Z",
         "queries": [
@@ -323,7 +323,7 @@
           }
         ],
         "aggregationQueries": [],
-        "rule": "title: Network Ingress Vulnerability Scanner & Recon Probing\nid: d412b816-e846-4b91-fad0-275c94921635\nstatus: experimental\ndescription: Detects automated scanning tools and web vulnerability recon probing reaching public endpoints\nreferences:\n  - https://attack.mitre.org/techniques/T1595/\nauthor: Hypatian SecOps\ndate: 2026/11/05\ntags:\n  - attack.reconnaissance\n  - attack.t1595\nlogsource:\n  category: network\ndetection:\n  selection:\n    http.response.status_code: 404\n  condition: selection\nfalsepositives:\n  - Legitimate mistyped URLs\nlevel: high"
+        "rule": "title: Network Ingress Vulnerability Scanner & Recon Probing\nid: d412b816-e846-4b91-fad0-275c94921635\nstatus: experimental\ndescription: Detects automated scanning tools and web vulnerability recon probing reaching public endpoints\nreferences:\n  - https://attack.mitre.org/techniques/T1595/\nauthor: CloudDefense SecOps\ndate: 2026/11/05\ntags:\n  - attack.reconnaissance\n  - attack.t1595\nlogsource:\n  category: network\ndetection:\n  selection:\n    http.response.status_code: 404\n  condition: selection\nfalsepositives:\n  - Legitimate mistyped URLs\nlevel: high"
       }
     },
     {
@@ -351,7 +351,7 @@
             "value": "Aggressive API sync clients"
           }
         ],
-        "author": "Hypatian SecOps",
+        "author": "CloudDefense SecOps",
         "status": "experimental",
         "last_update_time": "2026-11-05T00:00:00.000Z",
         "queries": [
@@ -365,7 +365,7 @@
           }
         ],
         "aggregationQueries": [],
-        "rule": "title: Network Ingress HTTP 429 Rate-Limit Abuse & Burst\nid: e523c927-f957-4ca2-abe1-386da5032746\nstatus: experimental\ndescription: Detects external client IPs exceeding normal request rate limits triggering HTTP 429\nreferences:\n  - https://attack.mitre.org/techniques/T1499/\nauthor: Hypatian SecOps\ndate: 2026/11/05\ntags:\n  - attack.impact\n  - attack.t1499\nlogsource:\n  category: network\ndetection:\n  selection:\n    http.response.status_code: 429\n  condition: selection\nfalsepositives:\n  - Aggressive API sync clients\nlevel: high"
+        "rule": "title: Network Ingress HTTP 429 Rate-Limit Abuse & Burst\nid: e523c927-f957-4ca2-abe1-386da5032746\nstatus: experimental\ndescription: Detects external client IPs exceeding normal request rate limits triggering HTTP 429\nreferences:\n  - https://attack.mitre.org/techniques/T1499/\nauthor: CloudDefense SecOps\ndate: 2026/11/05\ntags:\n  - attack.impact\n  - attack.t1499\nlogsource:\n  category: network\ndetection:\n  selection:\n    http.response.status_code: 429\n  condition: selection\nfalsepositives:\n  - Aggressive API sync clients\nlevel: high"
       }
     },
     {
@@ -393,7 +393,7 @@
             "value": "Health check probes without credentials"
           }
         ],
-        "author": "Hypatian SecOps",
+        "author": "CloudDefense SecOps",
         "status": "experimental",
         "last_update_time": "2026-11-05T00:00:00.000Z",
         "queries": [
@@ -407,7 +407,7 @@
           }
         ],
         "aggregationQueries": [],
-        "rule": "title: Kubernetes API Unauthorized 401 403 RBAC Violation\nid: f634da38-a068-4db3-bcf2-497eb6143857\nstatus: experimental\ndescription: Detects unauthorized attempts or forbidden RBAC access to Kubernetes API control plane\nreferences:\n  - https://kubernetes.io/docs/reference/access-authn-authz/rbac/\nauthor: Hypatian SecOps\ndate: 2026/11/05\ntags:\n  - attack.privilege_escalation\n  - attack.t1078\nlogsource:\n  product: linux\n  service: auditd\ndetection:\n  selection:\n    system.auth.user: \"system:unauthenticated\"\n  condition: selection\nfalsepositives:\n  - Health check probes without credentials\nlevel: high"
+        "rule": "title: Kubernetes API Unauthorized 401 403 RBAC Violation\nid: f634da38-a068-4db3-bcf2-497eb6143857\nstatus: experimental\ndescription: Detects unauthorized attempts or forbidden RBAC access to Kubernetes API control plane\nreferences:\n  - https://kubernetes.io/docs/reference/access-authn-authz/rbac/\nauthor: CloudDefense SecOps\ndate: 2026/11/05\ntags:\n  - attack.privilege_escalation\n  - attack.t1078\nlogsource:\n  product: linux\n  service: auditd\ndetection:\n  selection:\n    system.auth.user: \"system:unauthenticated\"\n  condition: selection\nfalsepositives:\n  - Health check probes without credentials\nlevel: high"
       }
     }
   ],
@@ -461,15 +461,15 @@
           "actions": [
             {
               "id": "x1s8qqEBfM7f3OmSsVx_",
-              "name": "Email saad@hypatian.io from alert@hypatian.io",
-              "destination_id": "hypatian-ses-email-channel",
+              "name": "Email secops@example.com from alerts@example.com",
+              "destination_id": "ses-alerts-channel",
               "message_template": {
                 "source": "{\"monitor_name\": \"Network Ingress Threat Detector\", \"trigger_name\": \"Network Ingress Abuse & Scanner Trigger\", \"severity\": \"2\", \"category\": \"Network Security & Scanner Recon\", \"summary\": \"Suspicious vulnerability scanning or rate-limit abuse detected at ingress proxy!\", \"details\": \"Detector: {{ctx.detector.name}} | Findings: {{ctx.finding.rules}}\"}",
                 "lang": "mustache"
               },
               "throttle_enabled": false,
               "subject_template": {
-                "source": "[HIGH - P2] Hypatian Security Alert: {{ctx.detector.name}}",
+                "source": "[HIGH - P2] CloudDefense Security Alert: {{ctx.detector.name}}",
                 "lang": "mustache"
               }
             }
@@ -562,15 +562,15 @@
           "actions": [
             {
               "id": "vls8qqEBfM7f3OmSmFyP",
-              "name": "Email saad@hypatian.io from alert@hypatian.io",
-              "destination_id": "hypatian-ses-email-channel",
+              "name": "Email secops@example.com from alerts@example.com",
+              "destination_id": "ses-alerts-channel",
               "message_template": {
                 "source": "{\"monitor_name\": \"Coraza WAF Threat Detector\", \"trigger_name\": \"WAF High & Critical Threat Trigger\", \"severity\": \"1\", \"category\": \"Coraza WAF & OWASP Detections\", \"summary\": \"High-severity web application attack detected and blocked by Coraza WAF!\", \"details\": \"Detector: {{ctx.detector.name}} | Severity: Critical/High | Findings: {{ctx.finding.rules}}\"}",
                 "lang": "mustache"
               },
               "throttle_enabled": false,
               "subject_template": {
-                "source": "[CRITICAL - P1] Hypatian Security Alert: {{ctx.detector.name}}",
+                "source": "[CRITICAL - P1] CloudDefense Security Alert: {{ctx.detector.name}}",
                 "lang": "mustache"
               }
             }
@@ -644,15 +644,15 @@
           "actions": [
             {
               "id": "0Fs8qqEBfM7f3OmStVz9",
-              "name": "Email saad@hypatian.io from alert@hypatian.io",
-              "destination_id": "hypatian-ses-email-channel",
+              "name": "Email secops@example.com from alerts@example.com",
+              "destination_id": "ses-alerts-channel",
               "message_template": {
                 "source": "{\"monitor_name\": \"Kubernetes Audit Threat Detector\", \"trigger_name\": \"K8s Audit RBAC Violation Trigger\", \"severity\": \"2\", \"category\": \"Kubernetes API & Cluster Audit Security\", \"summary\": \"Unauthorized or forbidden RBAC violation detected in Kubernetes API audit logs!\", \"details\": \"Detector: {{ctx.detector.name}} | Findings: {{ctx.finding.rules}}\"}",
                 "lang": "mustache"
               },
               "throttle_enabled": false,
               "subject_template": {
-                "source": "[HIGH - P2] Hypatian Security Alert: {{ctx.detector.name}}",
+                "source": "[HIGH - P2] CloudDefense Security Alert: {{ctx.detector.name}}",
                 "lang": "mustache"
               }
             }
@@ -693,15 +693,15 @@
         "actions": [
           {
             "id": "3ls8qqEBfM7f3OmSu1yI",
-            "name": "Email saad@hypatian.io from alert@hypatian.io",
-            "destination_id": "hypatian-ses-email-channel",
+            "name": "Email secops@example.com from alerts@example.com",
+            "destination_id": "ses-alerts-channel",
             "message_template": {
               "source": "{\"monitor_name\": \"Multi-Vector Correlated Threat Alert\", \"trigger_name\": \"Correlated Attack Trigger\", \"severity\": \"1\", \"category\": \"Security Analytics Correlation\", \"summary\": \"Multi-vector correlated threat detected between WAF blocks and Network scans within 5 minutes!\", \"details\": \"Correlated findings across logs_waf and logs_network within 5m sliding window\"}",
               "lang": "mustache"
             },
             "throttle_enabled": false,
             "subject_template": {
-              "source": "[CRITICAL - P1] Hypatian Security Alert: Multi-Vector Correlated Threat Detected",
+              "source": "[CRITICAL - P1] CloudDefense Security Alert: Multi-Vector Correlated Threat Detected",
               "lang": "mustache"
             }
           }
@@ -719,15 +719,15 @@
         "actions": [
           {
             "id": "4Fs8qqEBfM7f3OmSvFx-",
-            "name": "Email saad@hypatian.io from alert@hypatian.io",
-            "destination_id": "hypatian-ses-email-channel",
+            "name": "Email secops@example.com from alerts@example.com",
+            "destination_id": "ses-alerts-channel",
             "message_template": {
               "source": "{\"monitor_name\": \"Web Exploit to K8s API Unauthorized Correlation\", \"trigger_name\": \"Web to Cluster Privilege Escalation Trigger\", \"severity\": \"1\", \"category\": \"Security Analytics Correlation\", \"summary\": \"Correlated external web exploit with subsequent unauthorized Kubernetes API control plane access!\", \"details\": \"Correlated events between logs_waf and logs_audit within 5 minutes\"}",
               "lang": "mustache"
             },
             "throttle_enabled": false,
             "subject_template": {
-              "source": "[CRITICAL - P1] Hypatian Security Alert: Web Exploit to K8s API Unauthorized Attempt",
+              "source": "[CRITICAL - P1] CloudDefense Security Alert: Web Exploit to K8s API Unauthorized Attempt",
               "lang": "mustache"
             }
           }
@@ -745,15 +745,15 @@
         "actions": [
           {
             "id": "4ls8qqEBfM7f3OmSvVyE",
-            "name": "Email saad@hypatian.io from alert@hypatian.io",
-            "destination_id": "hypatian-ses-email-channel",
+            "name": "Email secops@example.com from alerts@example.com",
+            "destination_id": "ses-alerts-channel",
             "message_template": {
               "source": "{\"monitor_name\": \"WAF Attack to Workload Exception Anomaly\", \"trigger_name\": \"WAF Exploit to Workload Exception Trigger\", \"severity\": \"2\", \"category\": \"Security Analytics Correlation\", \"summary\": \"Correlated WAF attack attempt with workload application runtime error!\", \"details\": \"Correlated events between logs_waf and logs_error within 5 minutes\"}",
               "lang": "mustache"
             },
             "throttle_enabled": false,
             "subject_template": {
-              "source": "[HIGH - P2] Hypatian Security Alert: WAF Attack to Workload Exception Anomaly",
+              "source": "[HIGH - P2] CloudDefense Security Alert: WAF Attack to Workload Exception Anomaly",
               "lang": "mustache"
             }
           }
@@ -764,7 +764,7 @@
   "dashboards": {
     "id": "dashboard-security-analytics",
     "title": "8. Security Analytics & Threat Intel Detections Dashboard",
-    "url": "http://192.168.2.243:5601/app/dashboards#/view/dashboard-security-analytics",
-    "security_analytics_app_url": "http://192.168.2.243:5601/app/security-analytics-dashboards#/"
+    "url": "http://10.0.20.50:5601/app/dashboards#/view/dashboard-security-analytics",
+    "security_analytics_app_url": "http://10.0.20.50:5601/app/security-analytics-dashboards#/"
   }
 }
