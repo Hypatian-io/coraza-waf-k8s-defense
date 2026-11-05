@@ -1,0 +1,1787 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: logging
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: opensearch-headless
+  namespace: logging
+  labels:
+    app: opensearch
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  selector:
+    app: opensearch
+  ports:
+    - name: http
+      port: 9200
+      targetPort: 9200
+    - name: transport
+      port: 9300
+      targetPort: 9300
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: opensearch
+  namespace: logging
+  labels:
+    app: opensearch
+spec:
+  type: ClusterIP
+  selector:
+    app: opensearch
+  ports:
+    - name: http
+      port: 9200
+      targetPort: 9200
+    - name: transport
+      port: 9300
+      targetPort: 9300
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: opensearch
+  namespace: logging
+  labels:
+    app: opensearch
+spec:
+  serviceName: opensearch-headless
+  replicas: 3
+  podManagementPolicy: Parallel
+  selector:
+    matchLabels:
+      app: opensearch
+  template:
+    metadata:
+      labels:
+        app: opensearch
+    spec:
+      tolerations:
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: kubernetes.io/hostname
+                    operator: In
+                    values:
+                      - kubeapi
+                      - kubeworker2
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values:
+                        - opensearch
+                topologyKey: kubernetes.io/hostname
+      initContainers:
+        - name: init-sysctl-and-perms
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - |
+              sysctl -w vm.max_map_count=262144 || true
+              chown -R 1000:1000 /usr/share/opensearch/data
+          securityContext:
+            privileged: true
+            runAsUser: 0
+          volumeMounts:
+            - name: opensearch-data
+              mountPath: /usr/share/opensearch/data
+      containers:
+        - name: opensearch
+          image: opensearchproject/opensearch:2.19.7
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              (
+                while true; do
+                  for f in /usr/share/opensearch/logs/*.log; do
+                    [ -f "$f" ] || continue
+                    sz=$(wc -c < "$f" 2>/dev/null || echo 0)
+                    if [ "$sz" -ge 5242880 ]; then
+                      : > "$f"
+                    fi
+                  done
+                  rm -f /usr/share/opensearch/logs/gc.log.[0-9]* /usr/share/opensearch/logs/*.gz 2>/dev/null || true
+                  sleep 60
+                done
+              ) &
+              exec ./opensearch-docker-entrypoint.sh
+          ports:
+            - containerPort: 9200
+              name: http
+            - containerPort: 9300
+              name: transport
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: cluster.name
+              value: "hypatian-opensearch"
+            - name: node.name
+              value: "$(POD_NAME)"
+            - name: discovery.seed_hosts
+              value: "opensearch-0.opensearch-headless.logging.svc.cluster.local,opensearch-1.opensearch-headless.logging.svc.cluster.local,opensearch-2.opensearch-headless.logging.svc.cluster.local"
+            - name: cluster.initial_cluster_manager_nodes
+              value: "opensearch-0,opensearch-1,opensearch-2"
+            - name: bootstrap.memory_lock
+              value: "false"
+            - name: OPENSEARCH_JAVA_OPTS
+              value: "-Xms768m -Xmx768m"
+            - name: DISABLE_INSTALL_DEMO_CONFIG
+              value: "true"
+            - name: DISABLE_SECURITY_PLUGIN
+              value: "true"
+            - name: logger.level
+              value: "WARN"
+            - name: cluster.routing.allocation.disk.threshold_enabled
+              value: "true"
+            - name: cluster.routing.allocation.disk.watermark.low
+              value: "75%"
+            - name: cluster.routing.allocation.disk.watermark.high
+              value: "82%"
+            - name: cluster.routing.allocation.disk.watermark.flood_stage
+              value: "88%"
+          resources:
+            requests:
+              cpu: 200m
+              memory: 1100Mi
+            limits:
+              memory: 1600Mi
+          readinessProbe:
+            httpGet:
+              path: /_cluster/health?local=true
+              port: 9200
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            tcpSocket:
+              port: 9200
+            initialDelaySeconds: 45
+            periodSeconds: 15
+          volumeMounts:
+            - name: opensearch-data
+              mountPath: /usr/share/opensearch/data
+            - name: opensearch-logs
+              mountPath: /usr/share/opensearch/logs
+      volumes:
+        - name: opensearch-logs
+          emptyDir:
+            sizeLimit: 64Mi
+  volumeClaimTemplates:
+    - metadata:
+        name: opensearch-data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: longhorn
+        resources:
+          requests:
+            storage: 10Gi
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: opensearch-dashboards-config
+  namespace: logging
+data:
+  opensearch_dashboards.yml: |
+    server.name: hypatian-dashboards
+    server.host: "0.0.0.0"
+    opensearch.hosts: ["http://opensearch.logging.svc.cluster.local:9200"]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: opensearch-dashboards
+  namespace: logging
+  labels:
+    app: opensearch-dashboards
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: opensearch-dashboards
+  template:
+    metadata:
+      labels:
+        app: opensearch-dashboards
+    spec:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: kubernetes.io/hostname
+                    operator: In
+                    values:
+                      - kubeworker2
+                      - kubeapi
+      containers:
+        - name: opensearch-dashboards
+          image: opensearchproject/opensearch-dashboards:2.19.7
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 5601
+              name: http
+          env:
+            - name: OPENSEARCH_HOSTS
+              value: '["http://opensearch.logging.svc.cluster.local:9200"]'
+            - name: DISABLE_SECURITY_DASHBOARDS_PLUGIN
+              value: "true"
+          volumeMounts:
+            - name: config
+              mountPath: /usr/share/opensearch-dashboards/config/opensearch_dashboards.yml
+              subPath: opensearch_dashboards.yml
+          resources:
+            requests:
+              cpu: 100m
+              memory: 384Mi
+            limits:
+              memory: 768Mi
+          readinessProbe:
+            httpGet:
+              path: /api/status
+              port: 5601
+            initialDelaySeconds: 20
+            periodSeconds: 10
+      volumes:
+        - name: config
+          configMap:
+            name: opensearch-dashboards-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: opensearch-dashboards-service
+  namespace: logging
+  annotations:
+    metallb.universe.tf/address-pool: hypatian-ip-pool
+spec:
+  type: LoadBalancer
+  loadBalancerIP: 192.168.2.243
+  selector:
+    app: opensearch-dashboards
+  ports:
+    - name: http
+      protocol: TCP
+      port: 5601
+      targetPort: 5601
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: fluent-bit
+  namespace: logging
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: fluent-bit-read
+rules:
+  - apiGroups: [""]
+    resources: ["namespaces", "pods", "nodes", "events"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: fluent-bit-read
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: fluent-bit-read
+subjects:
+  - kind: ServiceAccount
+    name: fluent-bit
+    namespace: logging
+  - kind: ServiceAccount
+    name: default
+    namespace: default
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: fluent-bit-cluster-config
+  namespace: logging
+data:
+  fluent-bit.conf: |
+    [SERVICE]
+        Flush         5
+        Daemon        Off
+        Log_Level     info
+        Parsers_File  parsers.conf
+        HTTP_Server   On
+        HTTP_Listen   0.0.0.0
+        HTTP_Port     2020
+
+    # 1. Kubernetes API Server Audit Logs (on kubeapi)
+    [INPUT]
+        Name              tail
+        Tag               audit.k8s
+        Path              /var/log/kubernetes/audit/audit.log
+        Parser            json
+        DB                /var/log/flb_audit_k8s.db
+        Mem_Buf_Limit     10MB
+        Skip_Long_Lines   On
+        Refresh_Interval  5
+
+    # 2. Host SSH / Auth / Sudo Audit Logs
+    [INPUT]
+        Name              tail
+        Tag               audit.host
+        Path              /var/log/auth.log
+        Parser            syslog-rfc3164
+        DB                /var/log/flb_audit_host.db
+        Mem_Buf_Limit     5MB
+        Skip_Long_Lines   On
+        Refresh_Interval  10
+
+    # 3. Network & Ingress Logs (Traefik, MetalLB, Flannel, CoreDNS)
+    [INPUT]
+        Name              tail
+        Tag               kube.network.*
+        Path              /var/log/containers/*traefik*.log,/var/log/containers/*metallb*.log,/var/log/containers/*flannel*.log,/var/log/containers/*coredns*.log
+        Parser            cri
+        DB                /var/log/flb_network.db
+        Mem_Buf_Limit     10MB
+        Skip_Long_Lines   On
+        Refresh_Interval  5
+
+    # 4. All Cluster & Workload Health Logs (kube-system, longhorn, monitoring, radar, default)
+    [INPUT]
+        Name              tail
+        Tag               kube.cluster.*
+        Path              /var/log/containers/*.log
+        Exclude_Path      /var/log/containers/*fluent-bit*.log,/var/log/containers/*opensearch*.log
+        Parser            cri
+        DB                /var/log/flb_cluster.db
+        Mem_Buf_Limit     15MB
+        Skip_Long_Lines   On
+        Refresh_Interval  5
+
+    # 5. Host Kubelet & Containerd Systemd Health Logs
+    [INPUT]
+        Name              systemd
+        Tag               host.systemd
+        Systemd_Filter    _SYSTEMD_UNIT=kubelet.service
+        Systemd_Filter    _SYSTEMD_UNIT=containerd.service
+        Read_From_Tail    On
+        Mem_Buf_Limit     5MB
+
+    [FILTER]
+        Name                kubernetes
+        Match               kube.*
+        Kube_Tag_Prefix     kube.cluster.var.log.containers.
+        Kube_URL            https://kubernetes.default.svc:443
+        Kube_CA_File        /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+        Kube_Token_File     /var/run/secrets/kubernetes.io/serviceaccount/token
+        Merge_Log           On
+        Keep_Log            On
+        K8S-Logging.Parser  On
+        K8S-Logging.Exclude On
+
+    [FILTER]
+        Name                modify
+        Match               *
+        Add                 cluster hypatian-k8s
+
+    # Route Error-level logs from cluster/workloads to dedicated logs-errors index as well
+    [FILTER]
+        Name                rewrite_tag
+        Match               kube.cluster.*
+        Rule                $log (?i)(error|exception|critical|fatal|traceback|panic|errimagepull|crashloop) error.cluster false
+
+    [OUTPUT]
+        Name            opensearch
+        Match           audit.*
+        Host            opensearch.logging.svc.cluster.local
+        Port            9200
+        Logstash_Format On
+        Logstash_Prefix logs-audit
+        Suppress_Type_Name On
+        Replace_Dots    On
+        Retry_Limit     5
+
+    [OUTPUT]
+        Name            opensearch
+        Match           kube.network.*
+        Host            opensearch.logging.svc.cluster.local
+        Port            9200
+        Logstash_Format On
+        Logstash_Prefix logs-network
+        Suppress_Type_Name On
+        Replace_Dots    On
+        Retry_Limit     5
+
+    [OUTPUT]
+        Name            opensearch
+        Match           error.*
+        Host            opensearch.logging.svc.cluster.local
+        Port            9200
+        Logstash_Format On
+        Logstash_Prefix logs-error
+        Suppress_Type_Name On
+        Replace_Dots    On
+        Retry_Limit     5
+
+    [OUTPUT]
+        Name            opensearch
+        Match           kube.cluster.*
+        Host            opensearch.logging.svc.cluster.local
+        Port            9200
+        Logstash_Format On
+        Logstash_Prefix logs-cluster
+        Suppress_Type_Name On
+        Replace_Dots    On
+        Retry_Limit     5
+
+    [OUTPUT]
+        Name            opensearch
+        Match           host.systemd
+        Host            opensearch.logging.svc.cluster.local
+        Port            9200
+        Logstash_Format On
+        Logstash_Prefix logs-cluster
+        Suppress_Type_Name On
+        Replace_Dots    On
+        Retry_Limit     5
+
+  parsers.conf: |
+    [PARSER]
+        Name        cri
+        Format      regex
+        Regex       ^(?<time>[^ ]+) (?<stream>stdout|stderr) (?<logtag>[^ ]*) (?<log>.*)$
+        Time_Key    time
+        Time_Format %Y-%m-%dT%H:%M:%S.%L%z
+
+    [PARSER]
+        Name        json
+        Format      json
+        Time_Key    requestReceivedTimestamp
+        Time_Format %Y-%m-%dT%H:%M:%S.%L%z
+
+    [PARSER]
+        Name        syslog-rfc3164
+        Format      regex
+        Regex       ^\<(?<pri>[0-9]+)\>(?<time>[^ ]* {1,2}[^ ]* [^ ]*) (?<host>[^ ]*) (?<ident>[a-zA-Z0-9_\/\.\-]*)(?:\[(?<pid>[0-9]+)\])?(?:[^\:]*\:)? *(?<message>.*)$
+        Time_Key    time
+        Time_Format %b %d %H:%M:%S
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: fluent-bit-cluster-collector
+  namespace: logging
+  labels:
+    app: fluent-bit-cluster-collector
+spec:
+  selector:
+    matchLabels:
+      app: fluent-bit-cluster-collector
+  template:
+    metadata:
+      labels:
+        app: fluent-bit-cluster-collector
+    spec:
+      serviceAccountName: fluent-bit
+      tolerations:
+        - operator: Exists
+      containers:
+        - name: fluent-bit
+          image: fluent/fluent-bit:latest
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          resources:
+            requests:
+              cpu: 25m
+              memory: 40Mi
+            limits:
+              memory: 120Mi
+          volumeMounts:
+            - name: varlog
+              mountPath: /var/log
+            - name: varlogcontainers
+              mountPath: /var/log/containers
+              readOnly: true
+            - name: varlogpods
+              mountPath: /var/log/pods
+              readOnly: true
+            - name: systemd-journal
+              mountPath: /var/log/journal
+              readOnly: true
+            - name: config
+              mountPath: /fluent-bit/etc/
+      volumes:
+        - name: varlog
+          hostPath:
+            path: /var/log
+        - name: varlogcontainers
+          hostPath:
+            path: /var/log/containers
+        - name: varlogpods
+          hostPath:
+            path: /var/log/pods
+        - name: systemd-journal
+          hostPath:
+            path: /var/log/journal
+        - name: config
+          configMap:
+            name: fluent-bit-cluster-config
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: fluent-bit-sidecar-config
+  namespace: default
+data:
+  rotate-logs.sh: |
+    #!/bin/sh
+    # Strict container-level log rotation daemon (rotates at 5MB, keeps 1 backup max, purges >7d files)
+    MAX_BYTES=5242880
+    while true; do
+      for dir in /var/log/app /var/log/nginx /var/log/mysql /var/log/waf /config; do
+        if [ -d "$dir" ]; then
+          find "$dir" -maxdepth 1 -type f \( -name "*.log.[0-9]*" -o -name "*.old" -o -name "*.gz" \) -mtime +7 -delete 2>/dev/null || true
+          for f in "$dir"/*.log; do
+            [ -f "$f" ] || continue
+            size=$(wc -c < "$f" 2>/dev/null || echo 0)
+            if [ "$size" -ge "$MAX_BYTES" ]; then
+              rm -f "$f.2" "$f.3" 2>/dev/null || true
+              cp -f "$f" "$f.1" && : > "$f"
+            fi
+          done
+        fi
+      done
+      sleep 30
+    done
+
+  parsers.conf: |
+    [PARSER]
+        Name        json
+        Format      json
+        Time_Key    time
+        Time_Format %Y-%m-%dT%H:%M:%S%z
+
+    [PARSER]
+        Name        json_waf
+        Format      json
+
+    [PARSER]
+        Name        nginx_error
+        Format      regex
+        Regex       ^(?<time>\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2}) \[(?<level>\w+)\] (?<pid>\d+).(?<tid>\d+): (?<message>.*)$
+        Time_Key    time
+        Time_Format %Y/%m/%d %H:%M:%S
+
+  fluent-bit-nginx.conf: |
+    [SERVICE]
+        Flush         3
+        Daemon        Off
+        Log_Level     info
+        Parsers_File  /fluent-bit/etc/parsers.conf
+
+    [INPUT]
+        Name              tail
+        Tag               network.nginx.access
+        Path              /var/log/nginx/access.log
+        Parser            json
+        DB                /var/log/nginx/flb_access.db
+        Mem_Buf_Limit     5MB
+        Refresh_Interval  2
+
+    [INPUT]
+        Name              tail
+        Tag               error.nginx
+        Path              /var/log/nginx/error.log
+        Parser            nginx_error
+        DB                /var/log/nginx/flb_error.db
+        Mem_Buf_Limit     5MB
+        Refresh_Interval  2
+
+    [FILTER]
+        Name                modify
+        Match               *
+        Add                 app hypatian-web
+        Add                 component nginx-frontend
+        Add                 shipper sidecar
+
+    # Route 4xx/5xx HTTP responses to logs-error as well
+    [FILTER]
+        Name                rewrite_tag
+        Match               network.nginx.access
+        Rule                $status ^(4|5)\d\d$ error.nginx.http false
+
+    [OUTPUT]
+        Name            opensearch
+        Match           network.*
+        Host            opensearch.logging.svc.cluster.local
+        Port            9200
+        Logstash_Format On
+        Logstash_Prefix logs-network
+        Suppress_Type_Name On
+        Replace_Dots    On
+        Retry_Limit     5
+
+    [OUTPUT]
+        Name            opensearch
+        Match           error.*
+        Host            opensearch.logging.svc.cluster.local
+        Port            9200
+        Logstash_Format On
+        Logstash_Prefix logs-error
+        Suppress_Type_Name On
+        Replace_Dots    On
+        Retry_Limit     5
+
+  fluent-bit-webapp.conf: |
+    [SERVICE]
+        Flush         3
+        Daemon        Off
+        Log_Level     info
+        Parsers_File  /fluent-bit/etc/parsers.conf
+
+    [INPUT]
+        Name              tail
+        Tag               network.webapp.nginx
+        Path              /var/log/nginx/access.log
+        Parser            json
+        DB                /var/log/app/flb_nginx_access.db
+        Mem_Buf_Limit     5MB
+        Refresh_Interval  2
+
+    [INPUT]
+        Name              tail
+        Tag               app.webapp
+        Path              /var/log/app/app.log
+        DB                /var/log/app/flb_app.db
+        Mem_Buf_Limit     5MB
+        Refresh_Interval  2
+
+    [INPUT]
+        Name              tail
+        Tag               error.webapp
+        Path              /var/log/app/error.log,/var/log/nginx/error.log
+        DB                /var/log/app/flb_err.db
+        Mem_Buf_Limit     5MB
+        Refresh_Interval  2
+
+    [FILTER]
+        Name                modify
+        Match               *
+        Add                 app hypatian-web-app
+        Add                 shipper sidecar
+
+    [FILTER]
+        Name                rewrite_tag
+        Match               app.webapp
+        Rule                $log (?i)(error|exception|traceback|critical|500) error.webapp.runtime false
+
+    [OUTPUT]
+        Name            opensearch
+        Match           network.*
+        Host            opensearch.logging.svc.cluster.local
+        Port            9200
+        Logstash_Format On
+        Logstash_Prefix logs-network
+        Suppress_Type_Name On
+        Replace_Dots    On
+        Retry_Limit     5
+
+    [OUTPUT]
+        Name            opensearch
+        Match           app.*
+        Host            opensearch.logging.svc.cluster.local
+        Port            9200
+        Logstash_Format On
+        Logstash_Prefix logs-app
+        Suppress_Type_Name On
+        Replace_Dots    On
+        Retry_Limit     5
+
+    [OUTPUT]
+        Name            opensearch
+        Match           error.*
+        Host            opensearch.logging.svc.cluster.local
+        Port            9200
+        Logstash_Format On
+        Logstash_Prefix logs-error
+        Suppress_Type_Name On
+        Replace_Dots    On
+        Retry_Limit     5
+
+  fluent-bit-app.conf: |
+    [SERVICE]
+        Flush         3
+        Daemon        Off
+        Log_Level     info
+        Parsers_File  /fluent-bit/etc/parsers.conf
+
+    [INPUT]
+        Name              tail
+        Tag               app.workload
+        Path              /var/log/app/*.log,/config/home-assistant.log,/var/log/mysql/*.log
+        Exclude_Path      *.1,*.2,*.3,*.db
+        DB                /tmp/flb_app_sidecar.db
+        Mem_Buf_Limit     5MB
+        Refresh_Interval  2
+
+    [FILTER]
+        Name                modify
+        Match               *
+        Add                 app ${APP_NAME}
+        Add                 pod ${POD_NAME}
+        Add                 node ${NODE_NAME}
+        Add                 shipper sidecar
+
+    [FILTER]
+        Name                rewrite_tag
+        Match               app.workload
+        Rule                $log (?i)(error|exception|traceback|critical|fatal|\[error\]) error.workload false
+
+    [OUTPUT]
+        Name            opensearch
+        Match           app.*
+        Host            opensearch.logging.svc.cluster.local
+        Port            9200
+        Logstash_Format On
+        Logstash_Prefix logs-app
+        Suppress_Type_Name On
+        Replace_Dots    On
+        Retry_Limit     5
+
+    [OUTPUT]
+        Name            opensearch
+        Match           error.*
+        Host            opensearch.logging.svc.cluster.local
+        Port            9200
+        Logstash_Format On
+        Logstash_Prefix logs-error
+        Suppress_Type_Name On
+        Replace_Dots    On
+        Retry_Limit     5
+
+  fluent-bit-waf.conf: |
+    [SERVICE]
+        Flush         2
+        Daemon        Off
+        Log_Level     info
+        Parsers_File  /fluent-bit/etc/parsers.conf
+
+    [INPUT]
+        Name              tail
+        Tag               waf.audit
+        Path              /var/log/waf/audit.log
+        Parser            json_waf
+        DB                /var/log/waf/flb_waf.db
+        Mem_Buf_Limit     5MB
+        Refresh_Interval  2
+
+    [FILTER]
+        Name                modify
+        Match               *
+        Add                 cluster hypatian-k8s
+
+    # Route blocked WAF attacks to logs-error-* as well for central visibility (keep=true preserves waf.audit -> logs-waf-*)
+    [FILTER]
+        Name                rewrite_tag
+        Match               waf.audit
+        Rule                $action ^(blocked|detected)$ error.waf.attack true
+
+    [OUTPUT]
+        Name            opensearch
+        Match           waf.*
+        Host            opensearch.logging.svc.cluster.local
+        Port            9200
+        Logstash_Format On
+        Logstash_Prefix logs-waf
+        Suppress_Type_Name On
+        Replace_Dots    On
+        Retry_Limit     5
+
+    [OUTPUT]
+        Name            opensearch
+        Match           error.*
+        Host            opensearch.logging.svc.cluster.local
+        Port            9200
+        Logstash_Format On
+        Logstash_Prefix logs-error
+        Suppress_Type_Name On
+        Replace_Dots    On
+        Retry_Limit     5
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: opensearch-7d-retention-enforcer
+  namespace: logging
+spec:
+  schedule: "0 */6 * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 2
+  failedJobsHistoryLimit: 2
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: enforcer
+              image: python:3.11-slim
+              imagePullPolicy: IfNotPresent
+              command: ["python3", "-c"]
+              args:
+                - |
+                  import datetime, json, urllib.request
+
+                  OS_URL = "http://opensearch.logging.svc.cluster.local:9200"
+                  cutoff = (datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=7)).strftime("%Y.%m.%d")
+
+                  # 1. Delete any logs-* or top_queries-* index with date suffix older than 7 days
+                  with urllib.request.urlopen(f"{OS_URL}/_cat/indices?format=json") as resp:
+                      indices = json.loads(resp.read().decode())
+
+                  for idx_obj in indices:
+                      name = idx_obj.get("index", "")
+                      if name.startswith(("logs-", "metrics-cluster-", "alerts-history-", "top_queries-")):
+                          parts = name.split("-")
+                          for p in parts:
+                              if len(p) == 10 and p[4] == "." and p[7] == ".":
+                                  if p < cutoff:
+                                      req = urllib.request.Request(f"{OS_URL}/{name}", method="DELETE")
+                                      urllib.request.urlopen(req)
+                                      print(f"Deleted expired index (>7d): {name}")
+
+                  # 2. Check disk watermark across OpenSearch nodes; if any node >75% disk, prune oldest logs-cluster-* index
+                  with urllib.request.urlopen(f"{OS_URL}/_cat/allocation?format=json") as resp:
+                      allocs = json.loads(resp.read().decode())
+                  high_disk = any(float(a.get("disk.percent") or 0) >= 75.0 for a in allocs if a.get("node") != "UNASSIGNED")
+                  if high_disk:
+                      cluster_indices = sorted([i["index"] for i in indices if i.get("index", "").startswith("logs-cluster-")])
+                      if len(cluster_indices) > 1:
+                          oldest = cluster_indices[0]
+                          req = urllib.request.Request(f"{OS_URL}/{oldest}", method="DELETE")
+                          urllib.request.urlopen(req)
+                          print(f"Disk pressure safeguard (>75%): pruned oldest cluster log index {oldest}")
+                  print(f"7-day retention & disk safeguard check complete (cutoff: {cutoff})")
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-opensearch-bridge-script
+  namespace: logging
+data:
+  bridge.py: |
+    import datetime
+    import hashlib
+    import hmac
+    import http.server
+    import ipaddress
+    import json
+    import os
+    import threading
+    import time
+    import urllib.parse
+    import urllib.request
+
+    PROM_URL = os.environ.get("PROMETHEUS_URL", "http://prometheus-server.monitoring.svc.cluster.local:80")
+    OS_URL = os.environ.get("OPENSEARCH_URL", "http://opensearch.logging.svc.cluster.local:9200")
+    WAF_ADMIN_URL = os.environ.get("WAF_ADMIN_URL", "http://coraza-waf-service.default.svc.cluster.local:8080")
+    AWS_REGION = os.environ.get("AWS_REGION", "us-east-1")
+    ALERT_FROM = os.environ.get("ALERT_FROM", "Hypatian OpenSearch Alerting <alert@hypatian.io>")
+    ALERT_TO = os.environ.get("ALERT_TO", "saad@hypatian.io")
+    EXPECTED_NODES = ["kubeapi", "kubeworker1", "kubeworker2", "kubeworker3", "kubeworker4"]
+
+    SEVERITY_MAP = {
+        "1": {"label": "CRITICAL - P1", "color": "#dc2626", "bg": "#fef2f2", "desc": "Immediate Action Required — Cluster/Node Outage, Control-Plane Failure, or Critical OWASP WAF Attack"},
+        "2": {"label": "HIGH - P2", "color": "#ea580c", "bg": "#fff7ed", "desc": "High Priority — Pod Failure, WAF Attack Burst, Rate-Limit Abuse, Memory Shortage, or Disk Pressure"},
+        "3": {"label": "MEDIUM - P3", "color": "#d97706", "bg": "#fffbeb", "desc": "Elevated Warning — Sustained CPU Spike or Application Error Spike"},
+        "4": {"label": "LOW - P4", "color": "#2563eb", "bg": "#eff6ff", "desc": "Informational / Security Audit Anomaly"},
+    }
+
+    last_sent_cache = {}
+    COOLDOWN_SECONDS = 1800  # 30-minute deduplication per monitor+trigger unless forced
+
+    def prom_query(expr):
+        try:
+            url = f"{PROM_URL}/api/v1/query?" + urllib.parse.urlencode({"query": expr})
+            with urllib.request.urlopen(url, timeout=8) as r:
+                data = json.loads(r.read().decode())
+                if data.get("status") == "success":
+                    return data.get("data", {}).get("result", [])
+        except Exception as e:
+            print(f"[prom_query] error for {expr}: {e}", flush=True)
+        return []
+
+    def ensure_templates():
+        today_str = datetime.datetime.now(datetime.timezone.utc).strftime("%Y.%m.%d")
+        alias_body = {
+            "actions": [
+                {"add": {"index": f"logs-waf-{today_str}", "alias": "logs_waf"}},
+                {"add": {"index": f"logs-network-{today_str}", "alias": "logs_network"}},
+                {"add": {"index": f"logs-audit-{today_str}", "alias": "logs_audit"}},
+                {"add": {"index": f"logs-error-{today_str}", "alias": "logs_error"}}
+            ]
+        }
+        try:
+            req_a = urllib.request.Request(f"{OS_URL}/_aliases", data=json.dumps(alias_body).encode(), headers={"Content-Type": "application/json"}, method="POST")
+            urllib.request.urlopen(req_a, timeout=5)
+        except Exception:
+            pass
+
+        for name, pattern, alias_name, extra_settings, mappings in [
+            ("homelab-metrics-cluster-template", "metrics-cluster-*", None, {}, {}),
+            ("homelab-alerts-history-template", "alerts-history-*", None, {}, {}),
+            (
+                "homelab-logs-waf-template",
+                "logs-waf-*",
+                "logs_waf",
+                {"index.default_pipeline": "network-geoip-pipeline"},
+                {
+                    "properties": {
+                        "geoip": {"properties": {"location": {"type": "geo_point"}, "country_name": {"type": "keyword"}, "country_iso_code": {"type": "keyword"}, "city_name": {"type": "keyword"}, "region_name": {"type": "keyword"}}},
+                        "waf.request.method": {"type": "alias", "path": "request_method"},
+                        "waf.response.code": {"type": "alias", "path": "status"},
+                        "waf.request.uri_query": {"type": "alias", "path": "request_uri"}
+                    }
+                }
+            ),
+            (
+                "homelab-logs-network-template",
+                "logs-network-*",
+                "logs_network",
+                {"index.default_pipeline": "network-geoip-pipeline"},
+                {
+                    "properties": {
+                        "geoip": {"properties": {"location": {"type": "geo_point"}, "country_name": {"type": "keyword"}, "country_iso_code": {"type": "keyword"}, "city_name": {"type": "keyword"}, "region_name": {"type": "keyword"}}},
+                        "client_ip": {"type": "ip", "fields": {"keyword": {"type": "keyword"}}},
+                        "http.request.method": {"type": "alias", "path": "request_method"},
+                        "http.response.status_code": {"type": "alias", "path": "status"},
+                        "url.path": {"type": "alias", "path": "request_uri"},
+                        "source.ip": {"type": "alias", "path": "client_ip"}
+                    }
+                }
+            ),
+            (
+                "homelab-logs-audit-template",
+                "logs-audit-*",
+                "logs_audit",
+                {},
+                {
+                    "properties": {
+                        "source.ip": {"type": "alias", "path": "sourceIPs"},
+                        "system.auth.user": {"type": "alias", "path": "user.username"}
+                    }
+                }
+            ),
+            ("homelab-logs-error-template", "logs-error-*", "logs_error", {}, {}),
+        ]:
+            body = {
+                "index_patterns": [pattern],
+                "priority": 300,
+                "template": {
+                    "settings": {
+                        "number_of_shards": 1,
+                        "number_of_replicas": 1,
+                        "plugins.index_state_management.policy_id": "homelab-log-retention-policy",
+                        **extra_settings
+                    },
+                    **({"aliases": {alias_name: {}}} if alias_name else {}),
+                    **({"mappings": mappings} if mappings else {})
+                }
+            }
+            try:
+                req = urllib.request.Request(
+                    f"{OS_URL}/_index_template/{name}",
+                    data=json.dumps(body).encode(),
+                    headers={"Content-Type": "application/json"},
+                    method="PUT"
+                )
+                urllib.request.urlopen(req, timeout=5)
+            except Exception as e:
+                print(f"[ensure_templates] {name}: {e}", flush=True)
+
+    def collect_and_ship_metrics():
+        ensure_templates()
+        while True:
+            try:
+                now_dt = datetime.datetime.now(datetime.timezone.utc)
+                ts = now_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+                idx = f"metrics-cluster-{now_dt.strftime('%Y.%m.%d')}"
+                bulk_lines = []
+
+                def add_doc(doc):
+                    doc["@timestamp"] = ts
+                    doc["cluster"] = "hypatian-k8s"
+                    bulk_lines.append(json.dumps({"index": {"_index": idx}}))
+                    bulk_lines.append(json.dumps(doc))
+
+                # 1. Node Metrics
+                cpu_res = {r["metric"].get("node"): float(r["value"][1]) for r in prom_query('100 - (avg by(node) (irate(node_cpu_seconds_total{mode="idle"}[5m])) * 100)') if r["metric"].get("node")}
+                mem_pct_res = {r["metric"].get("node"): float(r["value"][1]) for r in prom_query('(1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100') if r["metric"].get("node")}
+                mem_mb_res = {r["metric"].get("node"): float(r["value"][1]) for r in prom_query('node_memory_MemAvailable_bytes / 1024 / 1024') if r["metric"].get("node")}
+                disk_pct_res = {r["metric"].get("node"): float(r["value"][1]) for r in prom_query('(1 - (node_filesystem_avail_bytes{mountpoint="/",fstype!~"tmpfs|overlay"} / node_filesystem_size_bytes{mountpoint="/",fstype!~"tmpfs|overlay"})) * 100') if r["metric"].get("node")}
+                disk_gb_res = {r["metric"].get("node"): float(r["value"][1]) for r in prom_query('node_filesystem_avail_bytes{mountpoint="/",fstype!~"tmpfs|overlay"} / 1024 / 1024 / 1024') if r["metric"].get("node")}
+                load_res = {r["metric"].get("node"): float(r["value"][1]) for r in prom_query('node_load1') if r["metric"].get("node")}
+                ready_res = {r["metric"].get("node"): float(r["value"][1]) for r in prom_query('kube_node_status_condition{condition="Ready",status="true"}') if r["metric"].get("node")}
+                disk_press_res = {r["metric"].get("node"): float(r["value"][1]) for r in prom_query('kube_node_status_condition{condition="DiskPressure",status="true"}') if r["metric"].get("node")}
+                mem_press_res = {r["metric"].get("node"): float(r["value"][1]) for r in prom_query('kube_node_status_condition{condition="MemoryPressure",status="true"}') if r["metric"].get("node")}
+
+                nodes_ready_count = 0
+                for n in EXPECTED_NODES:
+                    cpu = round(cpu_res.get(n, 0.0), 2)
+                    mem = round(mem_pct_res.get(n, 0.0), 2)
+                    mem_mb = round(mem_mb_res.get(n, 0.0), 1)
+                    dsk = round(disk_pct_res.get(n, 0.0), 2)
+                    dsk_gb = round(disk_gb_res.get(n, 0.0), 2)
+                    ld1 = round(load_res.get(n, 0.0), 2)
+                    is_ready = 1 if ready_res.get(n, 0.0) >= 1.0 else 0
+                    if is_ready:
+                        nodes_ready_count += 1
+                    d_press = 1 if (disk_press_res.get(n, 0.0) >= 1.0 or dsk >= 80.0) else 0
+                    m_press = 1 if (mem_press_res.get(n, 0.0) >= 1.0 or mem >= 85.0) else 0
+
+                    add_doc({
+                        "metric_type": "node_metrics",
+                        "node": n,
+                        "cpu_usage_pct": cpu,
+                        "memory_usage_pct": mem,
+                        "memory_avail_mb": mem_mb,
+                        "disk_usage_pct": dsk,
+                        "disk_avail_gb": dsk_gb,
+                        "load_1m": ld1,
+                        "node_ready": is_ready,
+                        "disk_pressure": d_press,
+                        "memory_pressure": m_press
+                    })
+
+                # 2. Pod Health, Node Placement & Detailed Failure Root-Cause Metrics
+                EXIT_CODE_EXPLANATIONS = {
+                    0: "Clean exit (0)",
+                    1: "Application runtime error / unhandled exception or fatal startup config error (Exit 1)",
+                    2: "Shell / CLI flag misuse or configuration syntax error (Exit 2)",
+                    126: "Container entrypoint command not executable / permission denied (Exit 126)",
+                    127: "Container entrypoint command/binary not found in image PATH (Exit 127)",
+                    128: "Invalid exit argument (Exit 128)",
+                    130: "Terminated by SIGINT / Ctrl-C (Exit 130)",
+                    134: "Terminated by SIGABRT / fatal assertion or panic (Exit 134)",
+                    137: "Killed by SIGKILL (Exit 137) — Linux kernel OOMKiller (Out-Of-Memory: container exceeded memory limit) or forced node eviction",
+                    139: "Terminated by SIGSEGV (Exit 139) — Segmentation fault / invalid memory reference",
+                    143: "Terminated by SIGTERM (Exit 143) — Graceful pod stop or liveness probe kill",
+                }
+
+                pod_info_map = {}
+                for r in prom_query('kube_pod_info'):
+                    m = r["metric"]
+                    ns = m.get("namespace", "default")
+                    pod = m.get("pod", "unknown")
+                    pod_info_map[(ns, pod)] = {
+                        "node": m.get("node", "unknown"),
+                        "host_ip": m.get("host_ip", ""),
+                        "pod_ip": m.get("pod_ip", ""),
+                        "owner_kind": m.get("created_by_kind", "Pod"),
+                        "owner_name": m.get("created_by_name", pod),
+                    }
+
+                wait_reasons = {}
+                for r in prom_query('kube_pod_container_status_waiting_reason > 0'):
+                    m = r["metric"]
+                    key = (m.get("namespace", "default"), m.get("pod", "unknown"))
+                    wait_reasons[key] = (m.get("reason", "Waiting"), m.get("container", "main"))
+
+                term_reasons = {}
+                for r in prom_query('kube_pod_container_status_last_terminated_reason > 0'):
+                    m = r["metric"]
+                    key = (m.get("namespace", "default"), m.get("pod", "unknown"))
+                    reason_val = m.get("reason", "Unknown")
+                    if key not in term_reasons or reason_val in ("OOMKilled", "Error", "ContainerCannotRun"):
+                        term_reasons[key] = (reason_val, m.get("container", "main"))
+
+                term_exitcodes = {}
+                for r in prom_query('kube_pod_container_status_last_terminated_exitcode'):
+                    m = r["metric"]
+                    key = (m.get("namespace", "default"), m.get("pod", "unknown"))
+                    try:
+                        code_val = int(float(r["value"][1]))
+                    except Exception:
+                        code_val = 0
+                    if key not in term_exitcodes or code_val != 0:
+                        term_exitcodes[key] = (code_val, m.get("container", "main"))
+
+                restarts_15m_map = {}
+                for r in prom_query('sum by(namespace, pod) (increase(kube_pod_container_status_restarts_total[15m]))'):
+                    m = r["metric"]
+                    key = (m.get("namespace", "default"), m.get("pod", "unknown"))
+                    if key in pod_info_map:
+                        restarts_15m_map[key] = round(float(r["value"][1]), 2)
+
+                pod_cpu_map = {}
+                for r in prom_query('sum by(namespace, pod) (rate(container_cpu_usage_seconds_total{container!="",pod!=""}[5m])) * 100'):
+                    m = r["metric"]
+                    pod_cpu_map[(m.get("namespace", "default"), m.get("pod", "unknown"))] = round(float(r["value"][1]), 2)
+
+                pod_mem_map = {}
+                for r in prom_query('sum by(namespace, pod) (container_memory_working_set_bytes{container!="",pod!=""}) / 1024 / 1024'):
+                    m = r["metric"]
+                    pod_mem_map[(m.get("namespace", "default"), m.get("pod", "unknown"))] = round(float(r["value"][1]), 2)
+
+                pod_phases = {}
+                for r in prom_query('kube_pod_status_phase > 0'):
+                    m = r["metric"]
+                    pod_phases[(m.get("namespace", "default"), m.get("pod", "unknown"))] = m.get("phase", "Running")
+
+                failing_pods_count = 0
+                active_pod_keys = set(pod_info_map.keys()) if pod_info_map else (set(pod_phases.keys()) | set(wait_reasons.keys()))
+                for ns, pod in active_pod_keys:
+                    phase = pod_phases.get((ns, pod), "Running")
+                    if phase == "Succeeded":
+                        continue
+                    pinfo = pod_info_map.get((ns, pod), {})
+                    node_name = pinfo.get("node", "unknown")
+                    host_ip = pinfo.get("host_ip", "")
+                    pod_ip = pinfo.get("pod_ip", "")
+                    w_reason, w_container = wait_reasons.get((ns, pod), ("Healthy", ""))
+                    t_reason, t_container = term_reasons.get((ns, pod), ("None", ""))
+                    exit_code, e_container = term_exitcodes.get((ns, pod), (0, ""))
+                    container_name = w_container or t_container or e_container or "main"
+                    restarts = restarts_15m_map.get((ns, pod), 0.0)
+
+                    is_failing = 1 if (
+                        w_reason in ("CrashLoopBackOff", "ErrImagePull", "ImagePullBackOff", "CreateContainerConfigError", "InvalidImageName", "RunContainerError")
+                        or phase in ("Failed", "Unknown")
+                        or (restarts >= 2.0 and t_reason in ("OOMKilled", "Error", "ContainerCannotRun"))
+                        or restarts >= 3.0
+                    ) else 0
+
+                    # Build detailed human-readable root cause explanation
+                    if is_failing:
+                        failing_pods_count += 1
+                        cause_parts = [f"Pod '{ns}/{pod}' on worker node '{node_name}' ({host_ip or 'N/A'}), container '{container_name}'"]
+                        if w_reason in ("ErrImagePull", "ImagePullBackOff", "InvalidImageName"):
+                            cause_parts.append(f"failed to pull container image ({w_reason}): verify image repository/tag existence, registry network reachability from {node_name}, or imagePullSecrets")
+                        elif w_reason == "CreateContainerConfigError":
+                            cause_parts.append("failed container creation (CreateContainerConfigError): missing referenced ConfigMap, Secret, or volume mount")
+                        elif t_reason == "OOMKilled" or exit_code == 137:
+                            cause_parts.append(f"was terminated by Linux kernel OOMKiller (Out-Of-Memory, Exit Code 137, Waiting State: {w_reason}, Restarts/15m: {restarts}): container memory working set ({pod_mem_map.get((ns, pod), 0.0)} MB) exceeded memory limit on node {node_name}")
+                        elif w_reason == "CrashLoopBackOff" or t_reason == "Error" or exit_code != 0:
+                            exit_desc = EXIT_CODE_EXPLANATIONS.get(exit_code, f"Non-zero exit code {exit_code}")
+                            cause_parts.append(f"is in {w_reason} (Last Terminated Reason: {t_reason}, Exit Code: {exit_code} -> {exit_desc}, Restarts/15m: {restarts})")
+                        else:
+                            cause_parts.append(f"entered failing state (Phase: {phase}, Waiting: {w_reason}, Last Terminated: {t_reason}, Exit Code: {exit_code}, Restarts/15m: {restarts})")
+
+                        # Fetch latest container error log snippet from OpenSearch if available
+                        try:
+                            err_q = {
+                                "size": 1,
+                                "sort": [{"@timestamp": {"order": "desc"}}],
+                                "query": {
+                                    "bool": {
+                                        "should": [
+                                            {"match_phrase": {"kubernetes.pod_name": pod}},
+                                            {"match_phrase": {"pod": pod}}
+                                        ],
+                                        "minimum_should_match": 1
+                                    }
+                                }
+                            }
+                            req_err = urllib.request.Request(
+                                f"{OS_URL}/logs-error-*,logs-cluster-*,logs-app-*/_search",
+                                data=json.dumps(err_q).encode(),
+                                headers={"Content-Type": "application/json"},
+                                method="POST"
+                            )
+                            with urllib.request.urlopen(req_err, timeout=3) as r_err:
+                                hits = json.loads(r_err.read().decode()).get("hits", {}).get("hits", [])
+                                if hits:
+                                    src = hits[0].get("_source", {})
+                                    log_line = (src.get("log") or src.get("message") or src.get("MESSAGE") or "")[:240].strip()
+                                    if log_line:
+                                        cause_parts.append(f"Last Container Log: \"{log_line}\"")
+                        except Exception:
+                            pass
+                        failure_cause = " | ".join(cause_parts)
+                    else:
+                        failure_cause = f"Healthy — Pod '{ns}/{pod}' running normally on worker node '{node_name}' ({host_ip or 'LAN'})"
+
+                    add_doc({
+                        "metric_type": "pod_metrics",
+                        "namespace": ns,
+                        "pod": pod,
+                        "node": node_name,
+                        "host_ip": host_ip,
+                        "pod_ip": pod_ip,
+                        "container": container_name,
+                        "phase": phase,
+                        "waiting_reason": w_reason,
+                        "terminated_reason": t_reason,
+                        "exit_code": exit_code,
+                        "failure_cause": failure_cause,
+                        "is_failing": is_failing,
+                        "restarts_15m": restarts,
+                        "cpu_cores_pct": pod_cpu_map.get((ns, pod), 0.0),
+                        "memory_mb": pod_mem_map.get((ns, pod), 0.0)
+                    })
+
+                # 3. PVC / Longhorn Volume Metrics
+                max_pvc_pct = 0.0
+                for r in prom_query('(kubelet_volume_stats_used_bytes / kubelet_volume_stats_capacity_bytes) * 100'):
+                    m = r["metric"]
+                    pvc_name = m.get("persistentvolumeclaim", "unknown")
+                    ns = m.get("namespace", "default")
+                    node = m.get("kubernetes_io_hostname") or m.get("instance", "unknown")
+                    pct = round(float(r["value"][1]), 2)
+                    if pct > max_pvc_pct:
+                        max_pvc_pct = pct
+                    add_doc({
+                        "metric_type": "pvc_metrics",
+                        "namespace": ns,
+                        "pvc": pvc_name,
+                        "node": node,
+                        "volume_usage_pct": pct
+                    })
+
+                # 4. OpenSearch Health & Cluster Summary
+                os_status = "green"
+                os_code = 0
+                try:
+                    with urllib.request.urlopen(f"{OS_URL}/_cluster/health", timeout=4) as r:
+                        h = json.loads(r.read().decode())
+                        os_status = h.get("status", "green")
+                        os_code = 0 if os_status == "green" else (1 if os_status == "yellow" else 2)
+                except Exception:
+                    os_status = "red"
+                    os_code = 2
+
+                add_doc({
+                    "metric_type": "cluster_summary",
+                    "nodes_total": len(EXPECTED_NODES),
+                    "nodes_ready": nodes_ready_count,
+                    "nodes_not_ready": max(0, len(EXPECTED_NODES) - nodes_ready_count),
+                    "opensearch_status": os_status,
+                    "opensearch_status_code": os_code,
+                    "max_node_cpu_pct": round(max(cpu_res.values()) if cpu_res else 0.0, 2),
+                    "max_node_memory_pct": round(max(mem_pct_res.values()) if mem_pct_res else 0.0, 2),
+                    "max_node_disk_pct": round(max(disk_pct_res.values()) if disk_pct_res else 0.0, 2),
+                    "max_pvc_usage_pct": max_pvc_pct,
+                    "failing_pods_count": failing_pods_count,
+                    "pod_restarts_15m": round(sum(restarts_15m_map.values()), 2)
+                })
+
+                if bulk_lines:
+                    payload = "\n".join(bulk_lines) + "\n"
+                    req = urllib.request.Request(
+                        f"{OS_URL}/_bulk",
+                        data=payload.encode(),
+                        headers={"Content-Type": "application/x-ndjson"},
+                        method="POST"
+                    )
+                    urllib.request.urlopen(req, timeout=10)
+            except Exception as e:
+                print(f"[collect_and_ship_metrics] error: {e}", flush=True)
+            time.sleep(60)
+
+    def is_private_ip(ip_str):
+        try:
+            ip = ipaddress.ip_address(ip_str.strip())
+            return ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_multicast or ip.is_reserved
+        except Exception:
+            return True
+
+    def auto_block_waf_attackers_loop():
+        """Continuously checks OpenSearch logs for any client IP exceeding >5 attacks in 15m and permanently blocks it in Coraza WAF."""
+        print("[auto_block_waf] Starting automated WAF attacker IP blocker loop (evaluating every 60s)...", flush=True)
+        time.sleep(15)
+        while True:
+            try:
+                q = {
+                    "size": 0,
+                    "query": {
+                        "bool": {
+                            "filter": [
+                                {"range": {"@timestamp": {"gte": "now-24h"}}}
+                            ],
+                            "should": [
+                                {"term": {"action.keyword": "blocked"}},
+                                {"terms": {"status": [401, 403, 404, 429]}}
+                            ],
+                            "minimum_should_match": 1
+                        }
+                    },
+                    "aggs": {
+                        "by_ip": {
+                            "terms": {"field": "client_ip.keyword", "size": 100},
+                            "aggs": {
+                                "over_time": {
+                                    "date_histogram": {
+                                        "field": "@timestamp",
+                                        "fixed_interval": "15m"
+                                    }
+                                },
+                                "max_bucket": {
+                                    "max_bucket": {
+                                        "buckets_path": "over_time>_count"
+                                    }
+                                },
+                                "top_paths": {
+                                    "terms": {"field": "request_uri.keyword", "size": 5}
+                                },
+                                "classes": {
+                                    "terms": {"field": "owasp_category.keyword", "size": 5}
+                                }
+                            }
+                        }
+                    }
+                }
+                req_os = urllib.request.Request(
+                    f"{OS_URL}/logs-waf-*,logs-network-*/_search",
+                    data=json.dumps(q).encode(),
+                    headers={"Content-Type": "application/json"},
+                    method="POST"
+                )
+                with urllib.request.urlopen(req_os, timeout=8) as r:
+                    res = json.loads(r.read().decode())
+                buckets = res.get("aggregations", {}).get("by_ip", {}).get("buckets", [])
+
+                offenders = []
+                for b in buckets:
+                    ip = b["key"].strip()
+                    if not ip or is_private_ip(ip):
+                        continue
+                    peak_15m = int(b.get("max_bucket", {}).get("value", 0) or 0)
+                    tot = b.get("doc_count", 0)
+                    if peak_15m > 5 or tot > 5:
+                        paths = [p["key"] for p in b.get("top_paths", {}).get("buckets", [])]
+                        classes = [c["key"] for c in b.get("classes", {}).get("buckets", [])]
+                        offenders.append({"ip": ip, "peak_15m": peak_15m, "total": tot, "paths": paths, "classes": classes})
+
+                if offenders:
+                    req_st = urllib.request.Request(f"{WAF_ADMIN_URL}/api/status", headers={"Accept": "application/json"})
+                    with urllib.request.urlopen(req_st, timeout=6) as r_st:
+                        waf_data = json.loads(r_st.read().decode())
+                    cfg = waf_data.get("config", {})
+                    existing_blocked = set(cfg.get("blocked_ips", []))
+                    new_blocked = []
+
+                    for off in offenders:
+                        ip = off["ip"]
+                        if ip not in existing_blocked:
+                            new_blocked.append(off)
+                            existing_blocked.add(ip)
+
+                    # Build enriched metadata details for all blocked IPs
+                    details_map = {d["ip"]: d for d in cfg.get("blocked_ip_details", []) if d.get("ip")}
+                    off_map = {off["ip"]: off for off in offenders}
+                    all_details = []
+                    for ip in sorted(list(existing_blocked)):
+                        off_info = off_map.get(ip, {})
+                        if ip in details_map and not off_info:
+                            all_details.append(details_map[ip])
+                        else:
+                            # Enrich IP with sample payload and GeoIP from OpenSearch
+                            q_s = {"size": 1, "query": {"term": {"client_ip.keyword": ip}}, "sort": [{"@timestamp": {"order": "desc"}}]}
+                            req_s = urllib.request.Request(f"{OS_URL}/logs-waf-*,logs-network-*/_search", data=json.dumps(q_s).encode(), headers={"Content-Type": "application/json"}, method="POST")
+                            try:
+                                with urllib.request.urlopen(req_s, timeout=4) as r_s:
+                                    s_hits = json.loads(r_s.read().decode()).get("hits", {}).get("hits", [])
+                                src_doc = s_hits[0]["_source"] if s_hits else {}
+                            except Exception:
+                                src_doc = {}
+                            country = src_doc.get("geoip", {}).get("country_name") or "External WAN"
+                            city = src_doc.get("geoip", {}).get("city_name") or "Unknown"
+                            country_iso = src_doc.get("geoip", {}).get("country_iso_code") or ""
+                            matched = src_doc.get("matched_data") or src_doc.get("request_uri") or (off_info.get("paths") and off_info["paths"][0]) or "-"
+                            classes = off_info.get("classes", [])
+                            if not classes and src_doc.get("owasp_category"):
+                                classes = [src_doc.get("owasp_category")]
+                            classes_str = ", ".join(classes) if classes else "Automated Exploit / Scanner Probing"
+                            pk = off_info.get("peak_15m") or 5
+
+                            all_details.append({
+                                "ip": ip,
+                                "threshold": f"> 5 req / 15m (Peak: {pk} / 15m)",
+                                "reasoning": f"Exceeded attack threshold of > 5 attacks in 15m ({pk} peak). Attack classes: {classes_str}.",
+                                "attack_vector": classes[0] if classes else "Automated Exploit / Scanner Probing",
+                                "sample_payload": str(matched)[:120],
+                                "top_paths": off_info.get("paths") or ([src_doc.get("request_uri")] if src_doc.get("request_uri") else ["/"]),
+                                "country": country,
+                                "city": city,
+                                "country_iso": country_iso,
+                                "ioc_reputation": "AlienVault OTX Monitored | Exploit Prober",
+                                "blocked_at": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+                            })
+
+                    needs_update = len(new_blocked) > 0 or len(cfg.get("blocked_ip_details", [])) < len(existing_blocked)
+                    if needs_update:
+                        cfg["blocked_ips"] = sorted(list(existing_blocked))
+                        cfg["blocked_ip_details"] = all_details
+                        cfg["updated_at"] = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+                        req_up = urllib.request.Request(
+                            f"{WAF_ADMIN_URL}/api/config",
+                            data=json.dumps(cfg).encode(),
+                            headers={"Content-Type": "application/json"},
+                            method="POST"
+                        )
+                        with urllib.request.urlopen(req_up, timeout=8) as r_up:
+                            up_res = json.loads(r_up.read().decode())
+                        if up_res.get("status") == "reloaded":
+                            print(f"[auto_block_waf] Permanently blocked {len(new_blocked)} new IP(s) in Coraza WAF: {[b['ip'] for b in new_blocked]}", flush=True)
+                            new_ip_list_str = ", ".join([f"{b['ip']} (Peak: {b['peak_15m']}/15m)" for b in new_blocked])
+                            subject = f"[CRITICAL - P1] Hypatian Security: {len(new_blocked)} Attacking IP(s) Permanently Blocked by Coraza WAF"
+                            html = f"""<div style='font-family:sans-serif;padding:20px;'><h2 style='color:#dc2626;'>[CRITICAL - P1] Coraza WAF Automated IP Defense</h2><p>The automated threat defense engine moved <strong>{len(new_blocked)}</strong> IP(s) to <strong>PERMANENTLY BLOCKED</strong> state in Coraza WAF after exceeding attack threshold (&gt;5 attacks in 15m):</p><p><code>{new_ip_list_str}</code></p></div>"""
+                            txt = f"[CRITICAL - P1] Coraza WAF Automated IP Defense\nPermanently blocked {len(new_blocked)} IP(s): {new_ip_list_str}\n"
+                            if new_blocked:
+                                send_ses_email(subject, html, txt)
+            except Exception as e:
+                print(f"[auto_block_waf_loop] error: {e}", flush=True)
+            time.sleep(60)
+
+    def get_pod_failure_diagnostics_html_and_text():
+        """Queries OpenSearch for any recent failing or restarting pods to include verbose pod/node/cause diagnostics in alert emails."""
+        try:
+            q = {
+                "size": 10,
+                "sort": [{"@timestamp": {"order": "desc"}}],
+                "query": {
+                    "bool": {
+                        "filter": [
+                            {"term": {"metric_type.keyword": "pod_metrics"}},
+                            {"range": {"@timestamp": {"gte": "now-15m", "lte": "now"}}}
+                        ],
+                        "should": [
+                            {"term": {"is_failing": 1}},
+                            {"range": {"restarts_15m": {"gte": 2}}}
+                        ],
+                        "minimum_should_match": 1
+                    }
+                }
+            }
+            req = urllib.request.Request(
+                f"{OS_URL}/metrics-cluster-*/_search",
+                data=json.dumps(q).encode(),
+                headers={"Content-Type": "application/json"},
+                method="POST"
+            )
+            with urllib.request.urlopen(req, timeout=4) as r:
+                hits = json.loads(r.read().decode()).get("hits", {}).get("hits", [])
+            if not hits:
+                return "", ""
+            seen = set()
+            rows_html = []
+            rows_txt = []
+            for h in hits:
+                s = h.get("_source", {})
+                pod_key = f"{s.get('namespace', 'default')}/{s.get('pod', 'unknown')}"
+                if pod_key in seen:
+                    continue
+                seen.add(pod_key)
+                node = s.get("node", "unknown")
+                host_ip = s.get("host_ip", "")
+                container = s.get("container", "main")
+                w_reason = s.get("waiting_reason", "Unknown")
+                t_reason = s.get("terminated_reason", "None")
+                exit_code = s.get("exit_code", 0)
+                restarts = s.get("restarts_15m", 0)
+                cause = s.get("failure_cause", "See container logs")
+                rows_html.append(
+                    f"<tr style='border-bottom:1px solid #e2e8f0;'>"
+                    f"<td style='padding:8px;'><strong>{pod_key}</strong><br/><span style='color:#64748b;font-size:11px;'>Container: {container}</span></td>"
+                    f"<td style='padding:8px;'><strong>{node}</strong><br/><span style='color:#64748b;font-size:11px;'>{host_ip}</span></td>"
+                    f"<td style='padding:8px;'><span style='color:#dc2626;font-weight:bold;'>{w_reason}</span><br/><span style='font-size:11px;'>Last Term: {t_reason} (Exit {exit_code}) | Restarts: {restarts}</span></td>"
+                    f"<td style='padding:8px;font-size:12px;'>{cause}</td>"
+                    f"</tr>"
+                )
+                rows_txt.append(f"  * Pod: {pod_key} | Worker Node: {node} ({host_ip}) | Container: {container} | Waiting: {w_reason} | Terminated: {t_reason} (Exit {exit_code}) | Restarts(15m): {restarts}\n    Root Cause: {cause}")
+            html_block = (
+                "<div style='margin-bottom:16px;border:1px solid #cbd5e1;border-radius:8px;overflow:hidden;'>"
+                "<div style='background:#0f172a;color:#fff;padding:8px 12px;font-size:13px;font-weight:bold;'>"
+                "Pod Failure Root-Cause Diagnostics (Pod Name, Worker Node &amp; Cause)"
+                "</div>"
+                "<table style='width:100%;border-collapse:collapse;font-size:12px;'>"
+                "<tr style='background:#f1f5f9;text-align:left;border-bottom:1px solid #cbd5e1;'>"
+                "<th style='padding:8px;'>Pod / Container</th><th style='padding:8px;'>Worker Node</th><th style='padding:8px;'>Failure State &amp; Exit Code</th><th style='padding:8px;'>Detailed Root Cause</th>"
+                "</tr>" + "".join(rows_html) + "</table></div>"
+            )
+            txt_block = "\nPod Failure Root-Cause Diagnostics:\n" + "\n".join(rows_txt) + "\n"
+            return html_block, txt_block
+        except Exception as e:
+            print(f"[get_pod_failure_diagnostics] {e}", flush=True)
+            return "", ""
+
+    def send_ses_email(subject, html_body, text_body):
+        access_key = os.environ.get("AWS_ACCESS_KEY_ID", "").strip()
+        secret_key = os.environ.get("AWS_SECRET_ACCESS_KEY", "").strip()
+        if not access_key or not secret_key:
+            print("[send_ses_email] Missing AWS credentials", flush=True)
+            return False
+
+        host = f"email.{AWS_REGION}.amazonaws.com"
+        endpoint = f"https://{host}/"
+        params = {
+            "Action": "SendEmail",
+            "Source": ALERT_FROM,
+            "Destination.ToAddresses.member.1": ALERT_TO,
+            "Message.Subject.Data": subject,
+            "Message.Subject.Charset": "UTF-8",
+            "Message.Body.Html.Data": html_body,
+            "Message.Body.Html.Charset": "UTF-8",
+            "Message.Body.Text.Data": text_body,
+            "Message.Body.Text.Charset": "UTF-8",
+            "Version": "2010-12-01"
+        }
+        body = urllib.parse.urlencode(params)
+        t = datetime.datetime.now(datetime.timezone.utc)
+        amz_date = t.strftime("%Y%m%dT%H%M%SZ")
+        date_stamp = t.strftime("%Y%m%d")
+
+        def sign(key, msg):
+            return hmac.new(key, msg.encode("utf-8"), hashlib.sha256).digest()
+
+        canonical_headers = f"content-type:application/x-www-form-urlencoded; charset=utf-8\nhost:{host}\nx-amz-date:{amz_date}\n"
+        signed_headers = "content-type;host;x-amz-date"
+        payload_hash = hashlib.sha256(body.encode("utf-8")).hexdigest()
+        canonical_request = f"POST\n/\n\n{canonical_headers}\n{signed_headers}\n{payload_hash}"
+        algorithm = "AWS4-HMAC-SHA256"
+        credential_scope = f"{date_stamp}/{AWS_REGION}/ses/aws4_request"
+        string_to_sign = f"{algorithm}\n{amz_date}\n{credential_scope}\n{hashlib.sha256(canonical_request.encode('utf-8')).hexdigest()}"
+
+        k_date = sign(("AWS4" + secret_key).encode("utf-8"), date_stamp)
+        k_region = sign(k_date, AWS_REGION)
+        k_service = sign(k_region, "ses")
+        k_signing = sign(k_service, "aws4_request")
+        signature = hmac.new(k_signing, string_to_sign.encode("utf-8"), hashlib.sha256).hexdigest()
+
+        auth_header = f"{algorithm} Credential={access_key}/{credential_scope}, SignedHeaders={signed_headers}, Signature={signature}"
+        headers = {
+            "Content-Type": "application/x-www-form-urlencoded; charset=utf-8",
+            "X-Amz-Date": amz_date,
+            "Authorization": auth_header
+        }
+        req = urllib.request.Request(endpoint, data=body.encode("utf-8"), headers=headers, method="POST")
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            resp_body = resp.read().decode("utf-8")
+            print(f"[send_ses_email] Sent '{subject}' from {ALERT_FROM} to {ALERT_TO}: HTTP {resp.status}", flush=True)
+            return True
+
+    class AlertWebhookHandler(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps({"status": "ok", "service": "prometheus-opensearch-bridge", "from": ALERT_FROM, "to": ALERT_TO}).encode())
+
+        def do_POST(self):
+            length = int(self.headers.get("Content-Length", 0))
+            raw = self.rfile.read(length).decode("utf-8", errors="replace") if length > 0 else "{}"
+            try:
+                data = json.loads(raw)
+                if isinstance(data, dict) and "text" in data and isinstance(data["text"], str):
+                    try:
+                        inner = json.loads(data["text"])
+                        if isinstance(inner, dict):
+                            data = inner
+                    except Exception:
+                        pass
+            except Exception:
+                data = {"monitor_name": "OpenSearch Alert Notification", "severity": "2", "category": "Cluster Alert", "message": raw}
+
+            sev_key = str(data.get("severity", "2")).strip()
+            sev_info = SEVERITY_MAP.get(sev_key, SEVERITY_MAP["2"])
+            monitor_name = data.get("monitor_name", "Hypatian K8s Monitor")
+            trigger_name = data.get("trigger_name", "Threshold Exceeded")
+            category = data.get("category", "Kubernetes & OpenSearch Operations")
+            summary = data.get("summary") or data.get("message") or "Alert threshold triggered in OpenSearch Alerting."
+            details = data.get("details") or data.get("results") or ""
+            force = bool(data.get("force", False))
+
+            pod_diag_html, pod_diag_txt = ("", "")
+            if any(k in (monitor_name + " " + trigger_name + " " + category).lower() for k in ("pod", "crashloop", "oom", "imagepull", "workload")):
+                pod_diag_html, pod_diag_txt = get_pod_failure_diagnostics_html_and_text()
+
+            now_ts = time.time()
+            dedup_key = f"{monitor_name}:{trigger_name}:{sev_key}"
+            last_sent = last_sent_cache.get(dedup_key, 0)
+            emailed = False
+
+            if force or (now_ts - last_sent >= COOLDOWN_SECONDS):
+                subject = f"[{sev_info['label']}] Hypatian K8s Alert: {monitor_name}"
+                utc_str = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+                html_body = f"""<!DOCTYPE html>
+    <html>
+    <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color: #1e293b; max-width: 720px; margin: 0 auto; padding: 20px;">
+      <div style="border: 2px solid {sev_info['color']}; border-radius: 10px; overflow: hidden;">
+        <div style="background: {sev_info['color']}; color: #ffffff; padding: 16px 20px;">
+          <div style="font-size: 12px; text-transform: uppercase; letter-spacing: 1px; opacity: 0.9;">Hypatian Homelab OpenSearch Alerting</div>
+          <h2 style="margin: 6px 0 0 0; font-size: 20px;">[{sev_info['label']}] {monitor_name}</h2>
+        </div>
+        <div style="background: {sev_info['bg']}; padding: 12px 20px; border-bottom: 1px solid #e2e8f0; font-size: 13px; color: #334155;">
+          <strong>Criticality Assessment:</strong> {sev_info['desc']}
+        </div>
+        <div style="padding: 20px; background: #ffffff;">
+          <table style="width: 100%; border-collapse: collapse; font-size: 14px; margin-bottom: 16px;">
+            <tr><td style="padding: 6px 0; color: #64748b; width: 160px;"><strong>Monitor:</strong></td><td>{monitor_name}</td></tr>
+            <tr><td style="padding: 6px 0; color: #64748b;"><strong>Trigger:</strong></td><td>{trigger_name}</td></tr>
+            <tr><td style="padding: 6px 0; color: #64748b;"><strong>Category:</strong></td><td>{category}</td></tr>
+            <tr><td style="padding: 6px 0; color: #64748b;"><strong>Criticality:</strong></td><td><span style="background: {sev_info['color']}; color: #fff; padding: 2px 8px; border-radius: 4px; font-weight: bold; font-size: 12px;">{sev_info['label']} (Sev {sev_key})</span></td></tr>
+            <tr><td style="padding: 6px 0; color: #64748b;"><strong>Timestamp:</strong></td><td>{utc_str}</td></tr>
+            <tr><td style="padding: 6px 0; color: #64748b;"><strong>Sender / Recipient:</strong></td><td>alert@hypatian.io &rarr; {ALERT_TO}</td></tr>
+          </table>
+          <div style="background: #f8fafc; border-left: 4px solid {sev_info['color']}; padding: 12px 16px; margin-bottom: 16px; font-size: 14px;">
+            <strong>Alert Summary:</strong><br/>{summary}
+          </div>
+          {pod_diag_html}
+          {f'<pre style="background: #0f172a; color: #e2e8f0; padding: 12px; border-radius: 6px; font-size: 12px; overflow-x: auto;">{details}</pre>' if details else ''}
+          <div style="margin-top: 18px; padding-top: 14px; border-top: 1px solid #e2e8f0; font-size: 13px; color: #475569;">
+            <strong>Quick Links (Local LAN):</strong><br/>
+            &bull; <a href="http://192.168.2.243:5601/app/alerting#/monitors">OpenSearch Alerting Monitors UI (192.168.2.243:5601)</a><br/>
+            &bull; <a href="http://192.168.2.243:5601/app/dashboards#/view/dashboard-cluster-health">Cluster &amp; Workload Health Dashboard</a><br/>
+            &bull; <a href="http://192.168.2.243:5601/app/dashboards#/view/dashboard-network-logs">Network, GeoIP &amp; Rate-Limit Dashboard</a>
+          </div>
+        </div>
+      </div>
+    </body>
+    </html>"""
+                text_body = f"[{sev_info['label']}] Hypatian K8s Alert: {monitor_name}\nTrigger: {trigger_name}\nCategory: {category}\nTimestamp: {utc_str}\nSummary: {summary}\n{pod_diag_txt}Details: {details}\nOpenSearch Alerting UI: http://192.168.2.243:5601/app/alerting#/monitors\n"
+                try:
+                    emailed = send_ses_email(subject, html_body, text_body)
+                    if emailed:
+                        last_sent_cache[dedup_key] = now_ts
+                except Exception as e:
+                    print(f"[AlertWebhookHandler] SES error: {e}", flush=True)
+
+            # Index alert record into alerts-history-YYYY.MM.DD
+            try:
+                now_dt = datetime.datetime.now(datetime.timezone.utc)
+                alert_doc = {
+                    "@timestamp": now_dt.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                    "cluster": "hypatian-k8s",
+                    "monitor_name": monitor_name,
+                    "trigger_name": trigger_name,
+                    "category": category,
+                    "severity": sev_key,
+                    "criticality": sev_info["label"],
+                    "summary": summary,
+                    "emailed": emailed,
+                    "sender": "alert@hypatian.io",
+                    "recipient": ALERT_TO
+                }
+                idx = f"alerts-history-{now_dt.strftime('%Y.%m.%d')}"
+                req = urllib.request.Request(
+                    f"{OS_URL}/{idx}/_doc",
+                    data=json.dumps(alert_doc).encode("utf-8"),
+                    headers={"Content-Type": "application/json"},
+                    method="POST"
+                )
+                urllib.request.urlopen(req, timeout=5)
+            except Exception as e:
+                print(f"[AlertWebhookHandler] Failed indexing alert history: {e}", flush=True)
+
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps({"status": "processed", "emailed": emailed, "criticality": sev_info["label"]}).encode())
+
+    if __name__ == "__main__":
+        t = threading.Thread(target=collect_and_ship_metrics, daemon=True)
+        t.start()
+        t_blocker = threading.Thread(target=auto_block_waf_attackers_loop, daemon=True)
+        t_blocker.start()
+        print("[prometheus-opensearch-bridge] Starting webhook server on :8080, Prometheus metrics shipper, and automated WAF IP blocker...", flush=True)
+        server = http.server.ThreadingHTTPServer(("0.0.0.0", 8080), AlertWebhookHandler)
+        server.serve_forever()
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prometheus-opensearch-bridge
+  namespace: logging
+  labels:
+    app: prometheus-opensearch-bridge
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: prometheus-opensearch-bridge
+  template:
+    metadata:
+      labels:
+        app: prometheus-opensearch-bridge
+    spec:
+      containers:
+        - name: bridge
+          image: python:3.11-slim
+          imagePullPolicy: IfNotPresent
+          command: ["python3", "/app/bridge.py"]
+          ports:
+            - containerPort: 8080
+              name: http-webhook
+          env:
+            - name: PROMETHEUS_URL
+              value: "http://prometheus-server.monitoring.svc.cluster.local:80"
+            - name: OPENSEARCH_URL
+              value: "http://opensearch.logging.svc.cluster.local:9200"
+            - name: AWS_REGION
+              value: "us-east-1"
+            - name: ALERT_FROM
+              value: "Hypatian OpenSearch Alerting <alert@hypatian.io>"
+            - name: ALERT_TO
+              value: "saad@hypatian.io"
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: aws-ses-credentials
+                  key: aws-access-key-id
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: aws-ses-credentials
+                  key: aws-secret-access-key
+          resources:
+            requests:
+              cpu: 20m
+              memory: 48Mi
+            limits:
+              cpu: 150m
+              memory: 128Mi
+          volumeMounts:
+            - name: script
+              mountPath: /app
+      volumes:
+        - name: script
+          configMap:
+            name: prometheus-opensearch-bridge-script
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: prometheus-opensearch-bridge
+  namespace: logging
+  labels:
+    app: prometheus-opensearch-bridge
+spec:
+  selector:
+    app: prometheus-opensearch-bridge
+  ports:
+    - name: http-webhook
+      port: 8080
+      targetPort: 8080
+

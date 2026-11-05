@@ -1,0 +1,56 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: opensearch-weekly-report-dispatcher
+  namespace: logging
+  labels:
+    app: opensearch-weekly-report-dispatcher
+spec:
+  schedule: "0 13 * * 0"  # Every Sunday at 13:00 UTC (08:00 EST)
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      template:
+        metadata:
+          labels:
+            app: opensearch-weekly-report-dispatcher
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: dispatcher
+              image: python:3.11-slim
+              imagePullPolicy: IfNotPresent
+              command: ["python3", "/app/create_reports.py", "--send-only"]
+              env:
+                - name: OSD_URL
+                  value: "http://opensearch-dashboards.logging.svc.cluster.local:5601"
+                - name: OPENSEARCH_URL
+                  value: "http://opensearch.logging.svc.cluster.local:9200"
+                - name: AWS_REGION
+                  value: "us-east-1"
+                - name: AWS_ACCESS_KEY_ID
+                  valueFrom:
+                    secretKeyRef:
+                      name: aws-ses-credentials
+                      key: aws-access-key-id
+                - name: AWS_SECRET_ACCESS_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: aws-ses-credentials
+                      key: aws-secret-access-key
+              resources:
+                requests:
+                  cpu: 25m
+                  memory: 64Mi
+                limits:
+                  cpu: 200m
+                  memory: 256Mi
+              volumeMounts:
+                - name: script
+                  mountPath: /app
+          volumes:
+            - name: script
+              configMap:
+                name: opensearch-weekly-reporter-script

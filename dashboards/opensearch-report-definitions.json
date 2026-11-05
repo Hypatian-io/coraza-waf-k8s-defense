@@ -1,0 +1,98 @@
+[
+  {
+    "id": "nFsZqqEBfM7f3OmSl1TD",
+    "name": "Weekly Coraza WAF Security and OWASP Performance Report",
+    "dashboard_id": "dashboard-waf-logs",
+    "category": "Security and WAF Performance",
+    "format": "pdf",
+    "schedule": "Weekly (Every 7 Days)",
+    "sender": "reporting@hypatian.io",
+    "recipient": "saad@hypatian.io",
+    "channel_id": "hypatian-ses-reporting-channel",
+    "view_url": "http://192.168.2.243:5601/app/reports-dashboards#/reportDefinitionDetails/nFsZqqEBfM7f3OmSl1TD"
+  },
+  {
+    "id": "nlsZqqEBfM7f3OmSmFQn",
+    "name": "Weekly Network Traffic, GeoIP and Top IP Abuse Report",
+    "dashboard_id": "dashboard-network-logs",
+    "category": "Network and Ingress Traffic",
+    "format": "pdf",
+    "schedule": "Weekly (Every 7 Days)",
+    "sender": "reporting@hypatian.io",
+    "recipient": "saad@hypatian.io",
+    "channel_id": "hypatian-ses-reporting-channel",
+    "view_url": "http://192.168.2.243:5601/app/reports-dashboards#/reportDefinitionDetails/nlsZqqEBfM7f3OmSmFQn"
+  },
+  {
+    "id": "oFsZqqEBfM7f3OmSmFSh",
+    "name": "Weekly Security Audit, API Access and SSH Log Report",
+    "dashboard_id": "dashboard-audit-logs",
+    "category": "Cluster Security Audit",
+    "format": "pdf",
+    "schedule": "Weekly (Every 7 Days)",
+    "sender": "reporting@hypatian.io",
+    "recipient": "saad@hypatian.io",
+    "channel_id": "hypatian-ses-reporting-channel",
+    "view_url": "http://192.168.2.243:5601/app/reports-dashboards#/reportDefinitionDetails/oFsZqqEBfM7f3OmSmFSh"
+  },
+  {
+    "id": "olsZqqEBfM7f3OmSmVQF",
+    "name": "Weekly Cluster Uptime, Node Availability and Workload Health Report",
+    "dashboard_id": "dashboard-cluster-health",
+    "category": "Cluster Health and Uptime",
+    "format": "pdf",
+    "schedule": "Weekly (Every 7 Days)",
+    "sender": "reporting@hypatian.io",
+    "recipient": "saad@hypatian.io",
+    "channel_id": "hypatian-ses-reporting-channel",
+    "view_url": "http://192.168.2.243:5601/app/reports-dashboards#/reportDefinitionDetails/olsZqqEBfM7f3OmSmVQF"
+  },
+  {
+    "id": "pFsZqqEBfM7f3OmSmVRR",
+    "name": "Weekly Application Workloads and Sidecar Shipper Report",
+    "dashboard_id": "dashboard-app-logs",
+    "category": "Application Logs and Shipper Health",
+    "format": "pdf",
+    "schedule": "Weekly (Every 7 Days)",
+    "sender": "reporting@hypatian.io",
+    "recipient": "saad@hypatian.io",
+    "channel_id": "hypatian-ses-reporting-channel",
+    "view_url": "http://192.168.2.243:5601/app/reports-dashboards#/reportDefinitionDetails/pFsZqqEBfM7f3OmSmVRR"
+  },
+  {
+    "id": "plsZqqEBfM7f3OmSmVSr",
+    "name": "Weekly Error Logs, Runtime Exceptions and HTTP 5xx Spikes Report",
+    "dashboard_id": "dashboard-error-logs",
+    "category": "Application and Infrastructure Errors",
+    "format": "pdf",
+    "schedule": "Weekly (Every 7 Days)",
+    "sender": "reporting@hypatian.io",
+    "recipient": "saad@hypatian.io",
+    "channel_id": "hypatian-ses-reporting-channel",
+    "view_url": "http://192.168.2.243:5601/app/reports-dashboards#/reportDefinitionDetails/plsZqqEBfM7f3OmSmVSr"
+  },
+  {
+    "id": "qFsZqqEBfM7f3OmSmlQZ",
+    "name": "Weekly Prometheus Ops Metrics, Workload Failures and Alert History Report",
+    "dashboard_id": "dashboard-prometheus-alerts",
+    "category": "Resource Metrics and Alert History",
+    "format": "pdf",
+    "schedule": "Weekly (Every 7 Days)",
+    "sender": "reporting@hypatian.io",
+    "recipient": "saad@hypatian.io",
+    "channel_id": "hypatian-ses-reporting-channel",
+    "view_url": "http://192.168.2.243:5601/app/reports-dashboards#/reportDefinitionDetails/qFsZqqEBfM7f3OmSmlQZ"
+  },
+  {
+    "id": "8_05qqEBVgIgqHxiyrGr",
+    "name": "Weekly Security Analytics and Threat Intelligence Report",
+    "dashboard_id": "dashboard-security-analytics",
+    "category": "Security Analytics and Threat Intelligence",
+    "format": "pdf",
+    "schedule": "Weekly (Every 7 Days)",
+    "sender": "reporting@hypatian.io",
+    "recipient": "saad@hypatian.io",
+    "channel_id": "hypatian-ses-reporting-channel",
+    "view_url": "http://192.168.2.243:5601/app/reports-dashboards#/reportDefinitionDetails/8_05qqEBVgIgqHxiyrGr"
+  }
+]

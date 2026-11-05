@@ -1,0 +1,171 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: mariadb-galera-headless
+  namespace: default
+  labels:
+    app: mariadb-galera
+spec:
+  ports:
+  - port: 3306
+    name: mysql
+  - port: 4567
+    name: galera-replication
+  - port: 4568
+    name: state-transfer
+  - port: 4444
+    name: sst
+  clusterIP: None
+  selector:
+    app: mariadb-galera
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mariadb-service
+  namespace: default
+spec:
+  selector:
+    app: mariadb-galera
+  ports:
+  - protocol: TCP
+    port: 3306
+    targetPort: 3306
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: mariadb-galera
+  namespace: default
+spec:
+  serviceName: "mariadb-galera-headless"
+  replicas: 3
+  selector:
+    matchLabels:
+      app: mariadb-galera
+  template:
+    metadata:
+      labels:
+        app: mariadb-galera
+    spec:
+      containers:
+      - name: mariadb
+        image: mariadb:10.11
+        imagePullPolicy: IfNotPresent
+        command:
+        - /bin/bash
+        - -c
+        - |
+          mkdir -p /var/log/mysql
+          touch /var/log/mysql/mariadb.log
+          /bin/sh /fluent-bit/etc/rotate-logs.sh &
+          # Extract pod index from hostname
+          if [[ $HOSTNAME =~ -([0-9]+)$ ]]; then
+            POD_INDEX=${BASH_REMATCH[1]}
+          else
+            POD_INDEX=0
+          fi
+          
+          # Get pod IP
+          POD_IP=$(hostname -i)
+          
+          # Common Galera arguments
+          GALERA_ARGS=(
+            "--wsrep-on=ON"
+            "--wsrep-provider=/usr/lib/galera/libgalera_smm.so"
+            "--wsrep-cluster-name=hypatian_galera"
+            "--wsrep-cluster-address=gcomm://mariadb-galera-0.mariadb-galera-headless.default.svc.cluster.local,mariadb-galera-1.mariadb-galera-headless.default.svc.cluster.local,mariadb-galera-2.mariadb-galera-headless.default.svc.cluster.local"
+            "--wsrep-node-name=$HOSTNAME"
+            "--wsrep-node-address=$POD_IP"
+            "--wsrep-sst-method=rsync"
+            "--binlog-format=ROW"
+            "--default-storage-engine=InnoDB"
+            "--innodb-autoinc-lock-mode=2"
+          )
+          
+          if [ "$POD_INDEX" -eq 0 ]; then
+            if [ ! -d "/var/lib/mysql/mysql" ]; then
+              echo "Initializing cluster database and bootstrapping..."
+              exec bash -c "docker-entrypoint.sh mariadbd \"\${GALERA_ARGS[@]}\" --wsrep-new-cluster 2>&1 | tee -a /var/log/mysql/mariadb.log"
+            else
+              echo "Database directory already initialized. Starting normally..."
+              exec bash -c "docker-entrypoint.sh mariadbd \"\${GALERA_ARGS[@]}\" 2>&1 | tee -a /var/log/mysql/mariadb.log"
+            fi
+          else
+            echo "Starting replica pod-$POD_INDEX, waiting for pod-0..."
+            exec bash -c "docker-entrypoint.sh mariadbd \"\${GALERA_ARGS[@]}\" 2>&1 | tee -a /var/log/mysql/mariadb.log"
+          fi
+        env:
+        - name: MARIADB_RANDOM_ROOT_PASSWORD
+          value: "1"
+        - name: MARIADB_DATABASE
+          value: hypatian_db
+        - name: MARIADB_USER
+          valueFrom:
+            secretKeyRef:
+              name: hypatian-secrets
+              key: db-user
+        - name: MARIADB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: hypatian-secrets
+              key: db-pass
+        ports:
+        - containerPort: 3306
+          name: mysql
+        - containerPort: 4567
+          name: replication
+        - containerPort: 4568
+          name: ist
+        - containerPort: 4444
+          name: sst
+        volumeMounts:
+        - name: datadir
+          mountPath: /var/lib/mysql
+        - name: mysql-logs
+          mountPath: /var/log/mysql
+        - name: sidecar-config
+          mountPath: /fluent-bit/etc
+      - name: fluent-bit-sidecar
+        image: fluent/fluent-bit:latest
+        imagePullPolicy: IfNotPresent
+        command: ["/fluent-bit/bin/fluent-bit", "-c", "/fluent-bit/etc/fluent-bit-app.conf"]
+        env:
+        - name: APP_NAME
+          value: "mariadb-galera"
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+        resources:
+          requests:
+            cpu: 10m
+            memory: 24Mi
+          limits:
+            memory: 64Mi
+        volumeMounts:
+        - name: mysql-logs
+          mountPath: /var/log/mysql
+        - name: sidecar-config
+          mountPath: /fluent-bit/etc
+      volumes:
+      - name: mysql-logs
+        emptyDir:
+          sizeLimit: 100Mi
+      - name: sidecar-config
+        configMap:
+          name: fluent-bit-sidecar-config
+          defaultMode: 0755
+  volumeClaimTemplates:
+  - metadata:
+      name: datadir
+    spec:
+      accessModes: [ "ReadWriteOnce" ]
+      storageClassName: "longhorn"
+      resources:
+        requests:
+          storage: 8Gi
