@@ -16,27 +16,36 @@
 
 At **Hypatian Systems Research**, our production Kubernetes cluster serves mission-critical web applications and APIs. Exposing these services to the public Internet invites relentless automated hostility. Within minutes of provisioning a public IP or DNS record, scanning botnets (`nuclei`, `masscan`, `nikto`), automated exploit frameworks, and credential stuffers begin probing web endpoints with directory traversal probes (`/etc/passwd`, `.env`, `.git`), webshell uploads (`eval-stdin.php`), and injection attacks (`' OR 1=1--`).
 
-```
-                ┌────────────────────────────────────────────────────────┐
-                │             The Modern Ingress Security Gap            │
-                └────────────────────────────────────────────────────────┘
-          Traditional Solutions                         Our Autonomous Cloud-Native Stack
-    ┌───────────────────────────────┐                  ┌─────────────────────────────────┐
-    │ ❌ Cloud WAFs (SaaS)           │                  │ ✅ 100% Open-Source & On-Prem   │
-    │    • Recurring vendor costs   │                  │    • Pure Go Coraza v3 proxy    │
-    │    • Blind to internal traffic│                  │    • Zero per-request SaaS fees │
-    │    • Opaque black-box rules   │                  │    • Inspects Ingress + Service │
-    ├───────────────────────────────┤                  ├─────────────────────────────────┤
-    │ ❌ ModSecurity / Legacy C     │                  │ ✅ In-Memory Dynamic Hot-Reload │
-    │    • Memory leaks & crashes   │                  │    • Atomic Go pointer swapping │
-    │    • Full restarts to reload  │                  │    • Zero downtime updates      │
-    │    • High container footprint │                  │    • Memory-safe runtime        │
-    ├───────────────────────────────┤                  ├─────────────────────────────────┤
-    │ ❌ Naive Per-Hit Alerting     │                  │ ✅ High-Rate Burst Detectors    │
-    │    • 500 emails on 1 scan     │                  │    • 14 tuned multi-class alerts│
-    │    • On-call fatigue          │                  │    • Enriched URL/payload context│
-    │    • Alerts get muted/ignored │                  │    • Auto-bans IPs >5 hits/15m  │
-    └───────────────────────────────┘                  └─────────────────────────────────┘
+### Container Workload Ingress Security Risks
+
+```mermaid
+flowchart TD
+    subgraph Threats ["🚨 Ingress Attack Vectors & Automated Probes"]
+        T1["💥 OWASP Top 10 Exploits<br>• SQL Injection: ' OR 1=1--<br>• Remote Code Execution: /api/exec<br>• Path Traversal: /etc/passwd, .env<br>• Webshell Uploads: eval-stdin.php"]
+        T2["🤖 Automated Reconnaissance & Scanners<br>• Fast Scanners: nuclei, masscan, nikto<br>• Endpoint Discovery: .git, swagger, wp-login<br>• High-Frequency Probe Bursts"]
+        T3["⚡ Volumetric & Credential Abuse<br>• Distributed Credential Stuffing<br>• Layer 7 Denial of Service: HTTP Floods<br>• Slowloris & Resource Exhaustion"]
+    end
+
+    subgraph DefenseGaps ["⚠️ Traditional Ingress Defense Gaps"]
+        G1["❌ Cloud SaaS WAF Bottlenecks<br>• High recurring per-request bandwidth fees<br>• Blind to internal cluster and pod traffic<br>• Opaque black-box SecLang rule sets"]
+        G2["❌ Legacy C / ModSecurity Proxies<br>• Memory corruption and segfault crashes<br>• Full container restarts required for rule reloads<br>• Heavy container memory footprint"]
+        G3["❌ Naive Un-Tuned Alerting<br>• 500+ spam alerts per automated scanner pass<br>• Severe on-call fatigue causes missed alerts<br>• Zero automated IP quarantine loop"]
+    end
+
+    subgraph ModernStack ["🛡️ Autonomous Cloud-Native Defense (Hypatian Systems Stack)"]
+        D1["✅ Pure Go Coraza v3 Ingress WAF<br>• 100% open-source & on-premises<br>• In-memory sub-millisecond inspection<br>• Full ingress and service mesh coverage"]
+        D2["✅ Dynamic In-Memory Hot-Reload<br>• Atomic Go pointer swapping (zero downtime)<br>• Memory-safe runtime without leak crashes<br>• Instant SecLang rule and blocklist reloads"]
+        D3["✅ Self-Healing Autonomous Defense<br>• 14 OpenSearch burst monitors (over 5 hits / 15m)<br>• Real-time automated attacker IP quarantine<br>• Enriched executive alert briefings via AWS SES"]
+    end
+
+    subgraph Workload ["☸️ Protected Container Workloads & Cluster Services"]
+        K8sApp["Kubernetes Ingress & Applications<br>(Web Apps, Flask APIs, Microservices, MariaDB)"]
+    end
+
+    Threats -->|Exploit Probes| DefenseGaps
+    DefenseGaps -.->|Exposes Workloads to Compromise| Workload
+    Threats ==>|Inspected & Filtered| ModernStack
+    ModernStack ==>|Guaranteed Clean Traffic| Workload
 ```
 
 This guide details the complete architecture, source code, visual dashboards, and automated quarantine loop deployed across our Kubernetes cluster. All manifests, automation scripts, and Go source code are maintained in the companion open-source repository:
