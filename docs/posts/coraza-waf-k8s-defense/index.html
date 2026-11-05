@@ -167,32 +167,34 @@
       <h2 id="1-introduction-the-ingress-defense-dilemma" class="text-2xl md:text-3xl font-bold text-white tracking-tight mt-14 mb-4 pt-8 border-t border-slate-800/80 flex items-center gap-2"><a href="#1-introduction-the-ingress-defense-dilemma" class="text-sky-500 hover:underline">#</a> 1. Introduction: The Ingress Defense Dilemma</h2>
 <p class="text-slate-300 text-base md:text-lg leading-relaxed my-4">At <strong class="text-white font-semibold">Hypatian Systems Research</strong>, our production Kubernetes cluster serves mission-critical web applications and APIs. Exposing these services to the public Internet invites relentless automated hostility. Within minutes of provisioning a public IP or DNS record, scanning botnets (<code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">nuclei</code>, <code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">masscan</code>, <code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">nikto</code>), automated exploit frameworks, and credential stuffers begin probing web endpoints with directory traversal probes (<code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">/etc/passwd</code>, <code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">.env</code>, <code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">.git</code>), webshell uploads (<code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">eval-stdin.php</code>), and injection attacks (<code class="px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs border border-slate-700/60">' OR 1=1--</code>).</p>
 
-<div class="relative my-8 group rounded-xl overflow-hidden border border-slate-800 bg-slate-950 shadow-2xl">
-  <div class="flex items-center justify-between px-4 py-2 bg-slate-900 border-b border-slate-800 text-xs font-mono text-slate-400">
-    <span class="font-semibold text-slate-300">text</span>
-    <button onclick="navigator.clipboard.writeText(this.parentElement.nextElementSibling.innerText); this.innerText='Copied!'; setTimeout(()=>this.innerText='Copy', 2000)" class="hover:text-white transition px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs">Copy</button>
-  </div>
-  <pre class="p-4 text-xs font-mono text-slate-200 overflow-x-auto leading-relaxed"><code>                ┌────────────────────────────────────────────────────────┐
-                │             The Modern Ingress Security Gap            │
-                └────────────────────────────────────────────────────────┘
-          Traditional Solutions                         Our Autonomous Cloud-Native Stack
-    ┌───────────────────────────────┐                  ┌─────────────────────────────────┐
-    │ ❌ Cloud WAFs (SaaS)           │                  │ ✅ 100% Open-Source &amp; On-Prem   │
-    │    • Recurring vendor costs   │                  │    • Pure Go Coraza v3 proxy    │
-    │    • Blind to internal traffic│                  │    • Zero per-request SaaS fees │
-    │    • Opaque black-box rules   │                  │    • Inspects Ingress + Service │
-    ├───────────────────────────────┤                  ├─────────────────────────────────┤
-    │ ❌ ModSecurity / Legacy C     │                  │ ✅ In-Memory Dynamic Hot-Reload │
-    │    • Memory leaks &amp; crashes   │                  │    • Atomic Go pointer swapping │
-    │    • Full restarts to reload  │                  │    • Zero downtime updates      │
-    │    • High container footprint │                  │    • Memory-safe runtime        │
-    ├───────────────────────────────┤                  ├─────────────────────────────────┤
-    │ ❌ Naive Per-Hit Alerting     │                  │ ✅ High-Rate Burst Detectors    │
-    │    • 500 emails on 1 scan     │                  │    • 14 tuned multi-class alerts│
-    │    • On-call fatigue          │                  │    • Enriched URL/payload context│
-    │    • Alerts get muted/ignored │                  │    • Auto-bans IPs &gt;5 hits/15m  │
-    └───────────────────────────────┘                  └─────────────────────────────────┘</code></pre>
-</div>
+<h3 id="container-workload-ingress-security-risks" class="text-xl md:text-2xl font-semibold text-slate-100 tracking-tight mt-8 mb-3">Container Workload Ingress Security Risks</h3>
+<div class="mermaid my-8 p-6 bg-slate-900/90 border border-slate-800 rounded-xl overflow-x-auto text-center shadow-2xl">flowchart TD
+    subgraph Threats ["🚨 Ingress Attack Vectors & Automated Probes"]
+        T1["💥 OWASP Top 10 Exploits<br>• SQL Injection: ' OR 1=1--<br>• Remote Code Execution: /api/exec<br>• Path Traversal: /etc/passwd, .env<br>• Webshell Uploads: eval-stdin.php"]
+        T2["🤖 Automated Reconnaissance & Scanners<br>• Fast Scanners: nuclei, masscan, nikto<br>• Endpoint Discovery: .git, swagger, wp-login<br>• High-Frequency Probe Bursts"]
+        T3["⚡ Volumetric & Credential Abuse<br>• Distributed Credential Stuffing<br>• Layer 7 Denial of Service: HTTP Floods<br>• Slowloris & Resource Exhaustion"]
+    end
+
+    subgraph DefenseGaps ["⚠️ Traditional Ingress Defense Gaps"]
+        G1["❌ Cloud SaaS WAF Bottlenecks<br>• High recurring per-request bandwidth fees<br>• Blind to internal cluster and pod traffic<br>• Opaque black-box SecLang rule sets"]
+        G2["❌ Legacy C / ModSecurity Proxies<br>• Memory corruption and segfault crashes<br>• Full container restarts required for rule reloads<br>• Heavy container memory footprint"]
+        G3["❌ Naive Un-Tuned Alerting<br>• 500+ spam alerts per automated scanner pass<br>• Severe on-call fatigue causes missed alerts<br>• Zero automated IP quarantine loop"]
+    end
+
+    subgraph ModernStack ["🛡️ Autonomous Cloud-Native Defense (Hypatian Systems Stack)"]
+        D1["✅ Pure Go Coraza v3 Ingress WAF<br>• 100% open-source & on-premises<br>• In-memory sub-millisecond inspection<br>• Full ingress and service mesh coverage"]
+        D2["✅ Dynamic In-Memory Hot-Reload<br>• Atomic Go pointer swapping (zero downtime)<br>• Memory-safe runtime without leak crashes<br>• Instant SecLang rule and blocklist reloads"]
+        D3["✅ Self-Healing Autonomous Defense<br>• 14 OpenSearch burst monitors (over 5 hits / 15m)<br>• Real-time automated attacker IP quarantine<br>• Enriched executive alert briefings via AWS SES"]
+    end
+
+    subgraph Workload ["☸️ Protected Container Workloads & Cluster Services"]
+        K8sApp["Kubernetes Ingress & Applications<br>(Web Apps, Flask APIs, Microservices, MariaDB)"]
+    end
+
+    Threats -->|Exploit Probes| DefenseGaps
+    DefenseGaps -.->|Exposes Workloads to Compromise| Workload
+    Threats ==>|Inspected & Filtered| ModernStack
+    ModernStack ==>|Guaranteed Clean Traffic| Workload</div>
 <p class="text-slate-300 text-base md:text-lg leading-relaxed my-4">This guide details the complete architecture, source code, visual dashboards, and automated quarantine loop deployed across our Kubernetes cluster. All manifests, automation scripts, and Go source code are maintained in the companion open-source repository:</p>
 <p class="text-slate-300 text-base md:text-lg leading-relaxed my-4">👉 <a href="https://github.com/saadrana219/coraza-waf-k8s-defense" target="_blank" rel="noopener noreferrer" class="text-sky-400 hover:text-sky-300 underline underline-offset-2 transition font-medium"><strong class="text-white font-semibold">https://github.com/saadrana219/coraza-waf-k8s-defense</strong></a></p>
 <hr class="border-slate-800 my-10" />
