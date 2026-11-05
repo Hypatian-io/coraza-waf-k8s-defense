@@ -908,7 +908,7 @@ data:
     OS_URL = os.environ.get("OPENSEARCH_URL", "http://opensearch.logging.svc.cluster.local:9200")
     WAF_ADMIN_URL = os.environ.get("WAF_ADMIN_URL", "http://coraza-waf-service.default.svc.cluster.local:8080")
     AWS_REGION = os.environ.get("AWS_REGION", "us-east-1")
-    ALERT_FROM = os.environ.get("ALERT_FROM", "CloudDefense OpenSearch Alerting <alerts@example.com>")
+    ALERT_FROM = os.environ.get("ALERT_FROM", "Hypatian Systems LLC OpenSearch Alerting <alerts@example.com>")
     ALERT_TO = os.environ.get("ALERT_TO", "secops@example.com")
     EXPECTED_NODES = ["control-plane-01", "worker-node-01", "worker-node-02", "worker-node-03", "worker-node-04"]
 
@@ -1446,7 +1446,7 @@ data:
                         if up_res.get("status") == "reloaded":
                             print(f"[auto_block_waf] Permanently blocked {len(new_blocked)} new IP(s) in Coraza WAF: {[b['ip'] for b in new_blocked]}", flush=True)
                             new_ip_list_str = ", ".join([f"{b['ip']} (Peak: {b['peak_15m']}/15m)" for b in new_blocked])
-                            subject = f"[CRITICAL - P1] CloudDefense Security: {len(new_blocked)} Attacking IP(s) Permanently Blocked by Coraza WAF"
+                            subject = f"[CRITICAL - P1] Hypatian Systems LLC Security: {len(new_blocked)} Attacking IP(s) Permanently Blocked by Coraza WAF"
                             html = f"""<div style='font-family:sans-serif;padding:20px;'><h2 style='color:#dc2626;'>[CRITICAL - P1] Coraza WAF Automated IP Defense</h2><p>The automated threat defense engine moved <strong>{len(new_blocked)}</strong> IP(s) to <strong>PERMANENTLY BLOCKED</strong> state in Coraza WAF after exceeding attack threshold (&gt;5 attacks in 15m):</p><p><code>{new_ip_list_str}</code></p></div>"""
                             txt = f"[CRITICAL - P1] Coraza WAF Automated IP Defense\nPermanently blocked {len(new_blocked)} IP(s): {new_ip_list_str}\n"
                             if new_blocked:
@@ -1606,7 +1606,7 @@ data:
 
             sev_key = str(data.get("severity", "2")).strip()
             sev_info = SEVERITY_MAP.get(sev_key, SEVERITY_MAP["2"])
-            monitor_name = data.get("monitor_name", "CloudDefense K8s Monitor")
+            monitor_name = data.get("monitor_name", "Hypatian Systems LLC K8s Monitor")
             trigger_name = data.get("trigger_name", "Threshold Exceeded")
             category = data.get("category", "Kubernetes & OpenSearch Operations")
             summary = data.get("summary") or data.get("message") or "Alert threshold triggered in OpenSearch Alerting."
@@ -1623,7 +1623,7 @@ data:
             emailed = False
 
             if force or (now_ts - last_sent >= COOLDOWN_SECONDS):
-                subject = f"[{sev_info['label']}] CloudDefense K8s Alert: {monitor_name}"
+                subject = f"[{sev_info['label']}] Hypatian Systems LLC K8s Alert: {monitor_name}"
                 utc_str = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
                 html_body = f"""<!DOCTYPE html>
     <html>
@@ -1660,7 +1660,7 @@ data:
       </div>
     </body>
     </html>"""
-                text_body = f"[{sev_info['label']}] CloudDefense K8s Alert: {monitor_name}\nTrigger: {trigger_name}\nCategory: {category}\nTimestamp: {utc_str}\nSummary: {summary}\n{pod_diag_txt}Details: {details}\nOpenSearch Alerting UI: http://10.0.20.50:5601/app/alerting#/monitors\n"
+                text_body = f"[{sev_info['label']}] Hypatian Systems LLC K8s Alert: {monitor_name}\nTrigger: {trigger_name}\nCategory: {category}\nTimestamp: {utc_str}\nSummary: {summary}\n{pod_diag_txt}Details: {details}\nOpenSearch Alerting UI: http://10.0.20.50:5601/app/alerting#/monitors\n"
                 try:
                     emailed = send_ses_email(subject, html_body, text_body)
                     if emailed:
@@ -1742,7 +1742,7 @@ spec:
             - name: AWS_REGION
               value: "us-east-1"
             - name: ALERT_FROM
-              value: "CloudDefense OpenSearch Alerting <alerts@example.com>"
+              value: "Hypatian Systems LLC OpenSearch Alerting <alerts@example.com>"
             - name: ALERT_TO
               value: "secops@example.com"
             - name: AWS_ACCESS_KEY_ID

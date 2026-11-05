@@ -1,6 +1,10 @@
+<p align="center">
+  <img src="docs/images/hypatian_logo_dark.png" alt="Hypatian Systems LLC" width="380" />
+</p>
+
 # Building an Autonomous Cloud-Native Defense Stack: Embedding Coraza WAF v3, OpenSearch Security Analytics, Real-Time GeoIP, and Automated Threat Response on Kubernetes
 
-> *A complete, visual, step-by-step engineering guide to deploying an enterprise-grade Web Application Firewall, lightweight in-memory log sidecars, OWASP Top 10 protection, high-rate burst detection, and self-healing IP quarantine on Kubernetes.*
+> *A complete, visual, step-by-step engineering guide by **Hypatian Systems LLC** detailing the deployment of an enterprise-grade Web Application Firewall, lightweight in-memory log sidecars, OWASP Top 10 protection, high-rate burst detection, and self-healing IP quarantine on Kubernetes.*
 
 [![GitHub Repository](https://img.shields.io/badge/GitHub-coraza--waf--k8s--defense-blue?logo=github)](https://github.com/saadrana219/coraza-waf-k8s-defense)
 [![Kubernetes](https://img.shields.io/badge/Kubernetes-v1.26+-326CE5?logo=kubernetes&logoColor=white)](https://kubernetes.io/)
@@ -12,7 +16,7 @@
 
 ## 1. Introduction: The Ingress Defense Dilemma
 
-Exposing web applications to the public Internet invites relentless automated hostility. Within minutes of provisioning a public IP or DNS record, scanning botnets (`nuclei`, `masscan`, `nikto`), automated exploit frameworks, and credential stuffers begin probing web endpoints with directory traversal probes (`/etc/passwd`, `.env`, `.git`), webshell uploads (`eval-stdin.php`), and injection attacks (`' OR 1=1--`).
+At **Hypatian Systems LLC**, our production Kubernetes cluster serves mission-critical web applications and APIs. Exposing these services to the public Internet invites relentless automated hostility. Within minutes of provisioning a public IP or DNS record, scanning botnets (`nuclei`, `masscan`, `nikto`), automated exploit frameworks, and credential stuffers begin probing web endpoints with directory traversal probes (`/etc/passwd`, `.env`, `.git`), webshell uploads (`eval-stdin.php`), and injection attacks (`' OR 1=1--`).
 
 ```
                 ┌────────────────────────────────────────────────────────┐
@@ -286,17 +290,17 @@ Rather than forcing human operators to review logs and manually update firewalls
 
 ```mermaid
 flowchart TD
-    Daemon["Autonomous Defense Daemon\n(Runs every 60s in cluster)"] --> Query["Query OpenSearch logs-waf-*\nDate Histogram Aggregation (15m sliding window)"]
-    Query --> Check{"Any external IP with\n> 5 attacks in 15m?"}
+    Daemon["Autonomous Defense Daemon<br>(Runs every 60s in cluster)"] --> Query["Query OpenSearch logs-waf-*<br>Date Histogram Aggregation (15m sliding window)"]
+    Query --> Check{"Any external IP with<br>more than 5 attacks in 15m?"}
     Check -->|No| Sleep["Sleep 60s"]
-    Check -->|Yes| SubnetCheck{"Is IP in Safe Subnets?\n(RFC1918 / Pod CIDR / Loopback)"}
-    SubnetCheck -->|Yes (Private)| Ignore["Protect Private Subnet & Ignore"]
-    SubnetCheck -->|No (Public)| FetchConfig["Fetch Coraza WAF Config\nGET http://coraza-waf-service:8080/api/config"]
+    Check -->|Yes| SubnetCheck{"Is IP in Safe Subnets?<br>(RFC1918 / Pod CIDR / Loopback)"}
+    SubnetCheck -->|Yes Private| Ignore["Protect Private Subnet & Ignore"]
+    SubnetCheck -->|No Public| FetchConfig["Fetch Coraza WAF Config<br>GET http://coraza-waf-service:8080/api/config"]
     FetchConfig --> CheckDupe{"Already Blocked?"}
     CheckDupe -->|Yes| Sleep
-    CheckDupe -->|No| AddRule["Append IP to Blocklist\nGenerate SecRule 100020 @ipMatch"]
-    AddRule --> PostReload["Hot-Reload Coraza WAF Engine\nPOST http://coraza-waf-service:8080/api/config"]
-    PostReload --> EmailAlert["Dispatch AWS SES Executive Alert\n(secops@example.com)"]
+    CheckDupe -->|No| AddRule["Append IP to Blocklist<br>Generate SecRule 100020 @ipMatch"]
+    AddRule --> PostReload["Hot-Reload Coraza WAF Engine<br>POST http://coraza-waf-service:8080/api/config"]
+    PostReload --> EmailAlert["Dispatch AWS SES Executive Alert<br>(secops@hypatian.com)"]
 ```
 
 ### Visual: Quarantined Attacker IPs & Threat Intelligence Table
@@ -475,4 +479,4 @@ Within 60 seconds:
 All manifests, Go source code, and scripts are open-source:
 👉 [**https://github.com/saadrana219/coraza-waf-k8s-defense**](https://github.com/saadrana219/coraza-waf-k8s-defense)
 
-*Published by the CloudDefense Infrastructure & Security Engineering Team.*
+*Published by the Hypatian Systems LLC Infrastructure & Security Engineering Team.*
