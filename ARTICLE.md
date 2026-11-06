@@ -6,7 +6,7 @@
 
 > *A complete, visual, step-by-step engineering guide by **Hypatian Systems Research** detailing the deployment of an enterprise-grade Web Application Firewall, lightweight in-memory log sidecars, OWASP Top 10 protection, high-rate burst detection, and self-healing IP quarantine on Kubernetes.*
 
-[**GitHub Repo**](https://github.com/saadrana219/coraza-waf-k8s-defense) | **Release:** `v1.0.0` | **Kubernetes:** `v1.26+` | **Coraza WAF:** `v3.2.1` | **OpenSearch:** `v2.19.7` | **License:** `MIT`
+[**GitHub Repo**](https://github.com/Hypatian-io/coraza-waf-k8s-defense) | **Release:** `v1.0.0` | **Kubernetes:** `v1.26+` | **Coraza WAF:** `v3.2.1` | **OpenSearch:** `v2.19.7` | **License:** `MIT`
 
 > ⚡ **Agentic Engineering Note:** Engineered, deployed, and published autonomously using the **Gemini Antigravity CLI** (`agy`) across Go proxy implementation, OpenSearch telemetry tuning, automated verification, and Route 53 publication.
 
@@ -49,7 +49,7 @@ flowchart TD
 ```
 
 This guide details the complete architecture, source code, visual dashboards, and automated quarantine loop deployed across our Kubernetes cluster. All manifests, automation scripts, and Go source code are maintained in the companion open-source repository:
-👉 [**https://github.com/saadrana219/coraza-waf-k8s-defense**](https://github.com/saadrana219/coraza-waf-k8s-defense)
+👉 [**https://github.com/Hypatian-io/coraza-waf-k8s-defense**](https://github.com/Hypatian-io/coraza-waf-k8s-defense)
 
 ---
 
@@ -397,7 +397,7 @@ You can reproduce this defense stack on any Kubernetes cluster ($v1.26+$).
 
 ### Step 1: Clone the Dedicated Reference Repository
 ```bash
-git clone https://github.com/saadrana219/coraza-waf-k8s-defense.git
+git clone https://github.com/Hypatian-io/coraza-waf-k8s-defense.git
 cd coraza-waf-k8s-defense
 ```
 
@@ -536,6 +536,6 @@ Deploying an autonomous WAF and telemetry pipeline into an active Kubernetes clu
 
 ### Repository & Reference Code
 All manifests, Go source code, and scripts are open-source:
-👉 [**https://github.com/saadrana219/coraza-waf-k8s-defense**](https://github.com/saadrana219/coraza-waf-k8s-defense)
+👉 [**https://github.com/Hypatian-io/coraza-waf-k8s-defense**](https://github.com/Hypatian-io/coraza-waf-k8s-defense)
 
 *Published by the Hypatian Systems Research Infrastructure & Security Engineering Team.*
